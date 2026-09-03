@@ -1,9 +1,9 @@
 # Daily Collection Management (DCM)
 # MVP Development Roadmap & Progress Tracker
 
-**Version:** 1.0  
-**Date:** 2 September 2026  
-**Status:** Ready for Development  
+**Version:** 1.1
+**Date:** 3 September 2026
+**Status:** MVP implementation in progress; production runtime blocked
 **Based on:**  
 - MVP & Service Model Specification v1.0  
 - MVP Technical Specification v1.0  
@@ -23,15 +23,15 @@
 2. **Subscription & Billing Management**
 3. **Daily Collection Management**
 
-### Technology Stack (ยืนยันแล้ว)
+### Technology Stack (ตาม implementation ปัจจุบัน)
 | Layer       | Technology              |
 |-------------|-------------------------|
-| Frontend    | Next.js + TypeScript + Tailwind CSS |
-| Backend     | NestJS + TypeScript     |
-| Database    | PostgreSQL              |
-| ORM         | Prisma                  |
-| Auth        | JWT + Refresh Token + bcrypt/argon2 |
-| Infra (MVP) | Docker + VPS/Cloud + Vercel (Frontend) |
+| Frontend    | React 19 + TypeScript + TanStack Start/Router + Tailwind CSS |
+| Backend     | TanStack Start server functions |
+| Database    | PostgreSQL ผ่าน `pg` (production) + PGlite (local preview) |
+| Data access | SQL migrations + shared server-only SQL adapter |
+| Auth        | Better Auth + Grok OAuth broker |
+| Infra (MVP) | Vercel + managed PostgreSQL |
 
 ---
 
@@ -39,12 +39,12 @@
 
 | Phase          | Sprint(s)     | ระยะเวลาโดยประมาณ | เป้าหมายหลัก                                      | สถานะ     |
 |----------------|---------------|-------------------|---------------------------------------------------|-----------|
-| **Setup**      | Sprint 0      | 1 สัปดาห์         | Project Skeleton + Environment                    | ⬜ Not Started |
-| **Foundation** | Sprint 1-2    | 4 สัปดาห์         | Auth + Multi-Tenant + User/Tenant Management      | ⬜ Not Started |
-| **Billing**    | Sprint 3-4    | 4 สัปดาห์         | Subscription + Invoice + Payment Confirmation     | ⬜ Not Started |
-| **Core Business** | Sprint 5-6 | 4 สัปดาห์         | Customer + Daily Collection                       | ⬜ Not Started |
-| **Insight**    | Sprint 7      | 2 สัปดาห์         | Dashboard + Reports                               | ⬜ Not Started |
-| **Release**    | Sprint 8      | 2 สัปดาห์         | Testing + Security + Production Deploy            | ⬜ Not Started |
+| **Setup**      | Sprint 0      | 1 สัปดาห์         | Project Skeleton + Environment                    | ✅ Completed |
+| **Foundation** | Sprint 1-2    | 4 สัปดาห์         | Auth + Multi-Tenant + User/Tenant Management      | 🟦 In Progress |
+| **Billing**    | Sprint 3-4    | 4 สัปดาห์         | Subscription + Invoice + Payment Confirmation     | 🟦 In Progress |
+| **Core Business** | Sprint 5-6 | 4 สัปดาห์         | Customer + Daily Collection                       | 🟦 In Progress |
+| **Insight**    | Sprint 7      | 2 สัปดาห์         | Dashboard + Reports                               | 🟦 In Progress |
+| **Release**    | Sprint 8      | 2 สัปดาห์         | Testing + Security + Production Deploy            | ⚠️ Blocked |
 
 **รวมระยะเวลาโดยประมาณ:** 15 – 17 สัปดาห์  
 **เป้าหมาย Launch Pilot:** สามารถทดลองกับลูกค้าจริงได้หลัง Sprint 8
@@ -276,17 +276,19 @@
 
 ### Overall Progress
 
+> สถานะ ณ 3 September 2026: มี MVP flow และหน้าหลักในโค้ดแล้ว แต่ยังไม่ถือว่า Ready for Pilot เพราะ deployment ปัจจุบันบน Vercel ยังตอบ HTTP 500; local build หลังแก้ไขผ่านแล้ว และยังต้อง redeploy เพื่อยืนยันผล
+
 | Sprint | Feature Group                  | Status          | Progress | Owner     | Notes |
 |--------|--------------------------------|-----------------|----------|-----------|-------|
-| 0      | Project Setup                  | ⬜ Not Started  | 0%       | -         |       |
-| 1      | Authentication & Multi-Tenant  | ⬜ Not Started  | 0%       | -         |       |
-| 2      | Tenant & User Management       | ⬜ Not Started  | 0%       | -         |       |
-| 3      | Subscription & Billing         | ⬜ Not Started  | 0%       | -         |       |
-| 4      | Payment Flow                   | ⬜ Not Started  | 0%       | -         |       |
-| 5      | Customer Management            | ⬜ Not Started  | 0%       | -         |       |
-| 6      | Daily Collection               | ⬜ Not Started  | 0%       | -         |       |
-| 7      | Dashboard & Reports            | ⬜ Not Started  | 0%       | -         |       |
-| 8      | Testing & Production           | ⬜ Not Started  | 0%       | -         |       |
+| 0      | Project Setup                  | ✅ Completed   | 100%     | -         | React/TanStack/Vite project, migrations and scriptsพร้อม |
+| 1      | Authentication & Multi-Tenant  | 🟦 In Progress | 70%      | -         | Better Auth, protected server functions and tenant-scoped queries |
+| 2      | Tenant & User Management       | 🟦 In Progress | 40%      | -         | Tenant switching exists; admin user management remains |
+| 3      | Subscription & Billing         | 🟦 In Progress | 70%      | -         | Subscription status and paywall exist; production validation remains |
+| 4      | Payment Flow                   | 🟦 In Progress | 30%      | -         | UI/domain groundwork exists; confirmation workflow remains |
+| 5      | Customer Management            | 🟦 In Progress | 80%      | -         | Customer page and server operations exist |
+| 6      | Daily Collection               | 🟦 In Progress | 80%      | -         | Collection page and dashboard summaries exist |
+| 7      | Dashboard & Reports            | 🟦 In Progress | 80%      | -         | Dashboard, charts and report routes exist |
+| 8      | Testing & Production           | 🟦 In Progress | 55%      | -         | 195 tests, typecheck and production build/migration pass; current Vercel deployment still returns HTTP 500 and needs redeploy |
 
 **Legend**
 - ⬜ Not Started
@@ -299,14 +301,14 @@
 
 | Milestone                              | Target Date       | Status     | Actual Date |
 |----------------------------------------|-------------------|------------|-------------|
-| Project Skeleton Ready                 | End of Sprint 0   | ⬜         | -           |
-| Login + Tenant Isolation Working       | End of Sprint 1   | ⬜         | -           |
+| Project Skeleton Ready                 | End of Sprint 0   | ✅         | 3 Sep 2026  |
+| Login + Tenant Isolation Working       | End of Sprint 1   | 🟦         | In progress |
 | SUPER_ADMIN สามารถสร้าง Tenant ได้     | End of Sprint 2   | ⬜         | -           |
 | Subscription Enforcement Working       | End of Sprint 3   | ⬜         | -           |
 | Payment Confirmation + Renewal Working | End of Sprint 4   | ⬜         | -           |
 | Daily Collection ใช้งานได้             | End of Sprint 6   | ⬜         | -           |
-| Dashboard & Reports Complete           | End of Sprint 7   | ⬜         | -           |
-| MVP Ready for Pilot                    | End of Sprint 8   | ⬜         | -           |
+| Dashboard & Reports Complete           | End of Sprint 7   | 🟦         | In progress |
+| MVP Ready for Pilot                    | End of Sprint 8   | ⚠️         | Blocked by production runtime |
 
 ---
 
@@ -374,7 +376,9 @@ Sprint 8 (Release)
 
 | Date       | Decision                                      | Made By     | Notes |
 |------------|-----------------------------------------------|-------------|-------|
-| 2026-09-02 | ใช้ NestJS + Prisma + PostgreSQL              | Spec        | -     |
+| 2026-09-02 | ใช้ PostgreSQL และ Manual Payment Confirmation | Spec        | -     |
+| 2026-09-03 | ใช้ React + TanStack Start + Better Auth       | Implementation | แทน stack เดิมในเอกสารที่ยังไม่ได้เริ่มพัฒนา |
+| 2026-09-03 | Vercel production ต้องใช้ auth + database env ครบ | Implementation | `VITE_AUTH_ENABLED=true` ต้องมี Grok auth credentials ที่ใช้งานได้ |
 | 2026-09-02 | Manual Payment Confirmation สำหรับ MVP        | Spec        | -     |
 | 2026-09-02 | Subscription ต่อจากวันหมดอายุเดิม (Policy)    | Spec        | ต้องยืนยันอีกครั้งใน Sprint 3-4 |
 |            |                                               |             |       |
@@ -390,16 +394,21 @@ Sprint 8 (Release)
 | Scope Creep (อยากเพิ่ม Feature)           | Medium | High        | ยึด MVP Scope จากเอกสาร Section 17-18 อย่างเคร่งครัด |
 | Subscription Date Calculation ผิด         | Medium | Medium      | เขียน Unit Test ครอบคลุมทุก Policy              |
 | Performance ของ Report เมื่อข้อมูลเยอะ    | Medium | Medium      | สร้าง Index ตาม Spec + ใช้ Aggregation ดี       |
+| Vercel runtime HTTP 500                  | High   | High        | ตรวจ Vercel Function logs และตรวจ env/auth/database ให้ครบก่อน redeploy |
+| Local Vite/Rolldown crash (exit 135)     | High   | Medium      | แก้แล้วด้วย Vite 7.3.6 ซึ่งสร้าง production bundle ได้สำเร็จ |
+| Auth flag กับ database ไม่ตรงกัน          | High   | High        | Auth-on ต้องมี `GROK_AUTH_CLIENT_ID/SECRET`; auth-off ห้ามใช้ shared dev user กับ production DB |
 
 ---
 
-## 9. Next Immediate Actions (เริ่มวันนี้)
+## 9. Next Immediate Actions (ลำดับถัดไป)
 
-1. [ ] ยืนยัน Technology Stack และ Team Capacity
-2. [ ] สร้าง Repository + ตั้งค่า Access
-3. [ ] เริ่ม Sprint 0 (Project Setup)
-4. [ ] ตกลง Working Agreement และ Meeting Cadence
-5. [ ] แต่งตั้ง Product Owner / Tech Lead สำหรับโปรเจกต์นี้
+1. [ ] ตรวจ Vercel Production env: `VITE_AUTH_ENABLED`, `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GROK_AUTH_ISSUER`, `GROK_AUTH_CLIENT_ID`, `GROK_AUTH_CLIENT_SECRET`
+2. [x] แก้ Vite/Rolldown exit 135 และให้ `npm run build` ผ่านครบทั้ง bundle กับ migration
+3. [ ] Deploy commit ล่าสุดขึ้น Vercel แล้วอ่าน Function runtime log หา stack traceของ HTTP 500 หากยังเกิด
+4. [ ] ตรวจ schema/migrations บน production database และทดสอบ query แรกของ Dashboard
+5. [ ] Redeploy แล้วตรวจหน้า `/` และ auth callback ใน browser จริง
+6. [ ] เพิ่ม integration/E2E checks สำหรับ sign-in, tenant isolation และ dashboard
+7. [ ] ค่อยทำ Payment Confirmation transaction และ admin user management ให้ครบก่อน Pilot
 
 ---
 

@@ -2,9 +2,9 @@
 
 # MVP Technical Specification
 
-**Version:** 1.0
-**Status:** MVP Development Specification
-**Date:** 2 September 2026
+**Version:** 1.1
+**Status:** MVP Development Specification - implementation update
+**Date:** 3 September 2026
 **Project:** Daily Collection Management (DCM)
 
 ---
@@ -15,141 +15,72 @@
 
 เอกสารฉบับนี้กำหนดรายละเอียดทางเทคนิคสำหรับการพัฒนา MVP ของระบบ Daily Collection Management (DCM)
 
-ระบบถูกออกแบบเป็น:
+ระบบที่ implement อยู่ในปัจจุบันเป็น:
 
-* Web Application
+* Web Application บน React + TanStack Start
 * Multi-Tenant SaaS
 * Subscription-based
 * รองรับลูกค้าหลายองค์กร
 * มีระบบจัดการสิทธิ์การใช้งานรายเดือน
 * มีระบบบันทึก Daily Collection
 * มี Dashboard และ Reports
+* Production target คือ Vercel + PostgreSQL; local preview ใช้ PGlite ได้เมื่อไม่มี `DATABASE_URL`
 
 ---
 
 # 2. High-Level Architecture
 
 ```text
-                        ┌─────────────────────┐
-                        │      Users          │
-                        │ Admin / Customer    │
-                        └──────────┬──────────┘
-                                   │
-                                   ▼
-                        ┌─────────────────────┐
-                        │    Frontend Web     │
-                        │ React / Next.js     │
-                        └──────────┬──────────┘
-                                   │ HTTPS
-                                   ▼
-                        ┌─────────────────────┐
-                        │      REST API       │
-                        │ Backend Application │
-                        └──────────┬──────────┘
-                                   │
-              ┌────────────────────┼────────────────────┐
-              ▼                    ▼                    ▼
-       Authentication         Subscription         Collection
-              │                    │                    │
-              └────────────────────┼────────────────────┘
-                                   │
-                                   ▼
-                        ┌─────────────────────┐
-                        │      Database       │
-                        │ PostgreSQL/MySQL    │
-                        └─────────────────────┘
+Users → React/TanStack Start → TanStack server functions → PostgreSQL/PGlite
+                          ├── Better Auth
+                          ├── Subscription / Billing
+                          └── Collection / Reports
 ```
 
 ---
 
 # 3. Recommended Technology Stack
 
-## Frontend
+## Frontend (implementation ปัจจุบัน)
 
 ```text
-Next.js
-React
+React 19
+TanStack Start / Router / Query
 TypeScript
 Tailwind CSS
 ```
 
-## Backend
-
-เลือกได้ 1 แนวทาง:
-
-### Option A
+## Backend (implementation ปัจจุบัน)
 
 ```text
-Node.js
-NestJS
+TanStack Start server functions
 TypeScript
 ```
 
-### Option B
+## Data access
 
-```text
-Node.js
-Express.js
-TypeScript
-```
-
-สำหรับระบบที่ต้องขยายในอนาคต แนะนำ:
-
-> **NestJS + TypeScript**
-
----
+ใช้ SQL migrations และ shared server-only SQL adapter รองรับ `pg` บน production กับ PGlite บน local preview ไม่ได้ใช้ Prisma ใน implementation ปัจจุบัน
 
 ## Database
 
 ```text
-PostgreSQL
+PostgreSQL (production)
+PGlite (local preview fallback)
 ```
 
-เหตุผล:
-
-* รองรับ Relational Data
-* Transaction แข็งแรง
-* เหมาะกับระบบการเงิน
-* รองรับ JSON
-* Scale ได้ดี
-
----
-
-## ORM
-
-แนะนำ:
+## Authentication (implementation ปัจจุบัน)
 
 ```text
-Prisma ORM
+Better Auth
+Grok OAuth broker
+Session cookie และ bearer token สำหรับ live preview
 ```
-
----
-
-## Authentication
-
-```text
-JWT
-Refresh Token
-bcrypt / argon2
-```
-
----
 
 ## Infrastructure (MVP)
 
 ```text
-Frontend
-   │
-   ├── Vercel
-   │
-Backend
-   │
-   ├── Docker
-   ├── VPS / Cloud
-   │
-Database
-   │
-   └── PostgreSQL
+Vercel
+Managed PostgreSQL
 ```
 
 ---

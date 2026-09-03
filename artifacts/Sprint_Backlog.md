@@ -10,6 +10,19 @@
 - ใช้ใน Sprint Planning / Daily Standup  
 - Legend: ⬜ Todo | 🟦 In Progress | ✅ Done | ⚠️ Blocked | 🔄 Review
 
+## Current Implementation Snapshot
+
+| Area | Status | Evidence / Remaining work |
+|------|--------|---------------------------|
+| Project setup and repository | ✅ Done | React/TanStack/Vite project, scripts, migrations and remote `origin/main` are present |
+| Dashboard and reports | 🟦 In Progress | Dashboard, charts and report routes exist; production runtime still needs verification |
+| Customers and collections | 🟦 In Progress | Main pages and server operations exist; isolation and validation tests remain |
+| Subscription and paywall | 🟦 In Progress | Status/paywall flow exists; full manual payment confirmation is not complete |
+| Authentication | ⚠️ Blocked in production | Local code is wired for Better Auth; Vercel currently returns HTTP 500 and requires complete auth env |
+| Production release | 🟦 In Progress | Build and migration pass; must redeploy and verify the Vercel Function HTTP 500 is resolved |
+
+> ลำดับงานถัดไปคือแก้ production runtime และยืนยัน auth/database contract ให้ผ่านก่อนเพิ่มฟีเจอร์ใหม่
+
 ---
 
 ## Sprint 0 — Project Setup (3–5 วัน)
