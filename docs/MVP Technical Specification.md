@@ -2,10 +2,26 @@
 
 # MVP Technical Specification
 
-**Version:** 1.0
-**Status:** MVP Development Specification
-**Date:** 2 September 2026
+**Version:** 2.0
+**Status:** MVP Development Specification (Updated)
+**Date:** 3 September 2026
 **Project:** Daily Collection Management (DCM)
+**Supersedes:** v1.0 (2 September 2026)
+
+---
+
+> **⚠️ Architecture Review Applied**
+>
+> เอกสารฉบับนี้ได้รับการอัปเดตตาม Architecture Review — Align DCM with Product Principles v1.0
+> อ่านรายละเอียดที่ `docs/Architecture Review — Align DCM with Product Principles.md`
+>
+> **P0 Changes ที่infile:**
+> 1. User ↔ Tenant เป็น Many-to-Many ผ่าน `tenant_memberships`
+> 2. SUPER_ADMIN ไม่มี default access ต่อข้อมูลธุรกิจของ Tenant
+> 3. เพิ่ม Domains: debts, obligations, payments (collection), payment_allocations
+> 4. Financial records ห้าม destructive delete — ใช้ reversal/correction
+>
+> **Product Principle:** DCM คือระบบบริหารข้อมูลภาระหนี้และการรับชำระ ไม่ใช่ระบบ "ไล่ล่าลูกหนี้"
 
 ---
 
@@ -156,30 +172,34 @@ Database
 
 # 4. System Roles
 
-ระบบ MVP มี 3 Role
+ระบบ MVP มี 2 ระดับ Role:
 
 ```text
-SUPER_ADMIN
-TENANT_ADMIN
-TENANT_USER
+Platform Level:   SUPER_ADMIN (ผูกกับ users.platform_role)
+Tenant Level:     TENANT_ADMIN, TENANT_USER (ผูกกับ tenant_memberships.role)
 ```
+
+> **⚠️ สำคัญ:** Role ของ Tenant User ต้องอยู่ใน `tenant_memberships` ไม่ใช่ใน `users`
+> เพราะ User คนเดียวอาจเป็น TENANT_ADMIN ใน Tenant A และ TENANT_USER ใน Tenant B
+> ดูรายละเอียดใน Architecture Review §1
 
 ---
 
 ## 4.1 SUPER_ADMIN
 
-ผู้ดูแลระบบ SaaS
+ผู้ดูแลระบบ SaaS (platform-level)
 
 สิทธิ์:
 
-* จัดการ Tenant
-* จัดการ Subscription
-* ตรวจสอบ Payment
-* ยืนยัน Payment
-* ดูข้อมูลภาพรวม
-* Suspend Tenant
-* Activate Tenant
-* ดู System Dashboard
+* จัดการ Tenant (สร้าง/แก้ไข/ระงับ)
+* จัดการ Subscription & Billing (invoice, payment confirmation)
+* ดู System Dashboard (revenue, tenant count, health)
+* ดู Platform Audit Logs
+* ยืนยัน Payment สำหรับ Subscription
+
+> **⚠️ ห้าม:** SUPER_ADMIN ไม่มี default access ต่อข้อมูลลูกหนี้ (customers), ข้อมูล Collection, หรือ Reports ของ Tenant
+> ถ้าจำเป็นต้องเข้าถึง ต้องใช้ Impersonation Mode เท่านั้น
+> ดูรายละเอียดใน Architecture Review §2
 
 ---
 
@@ -189,25 +209,25 @@ TENANT_USER
 
 สิทธิ์:
 
-* จัดการ User ภายในองค์กร
-* จัดการลูกค้า
-* ดู Collection
-* เพิ่ม/แก้ไข Collection
+* จัดการ User ภายในองค์กร (invite/remove membership)
+* จัดการลูกค้า (customers)
+* จัดการหนี้ (debts)
+* บันทึก/แก้ไขการรับชำระ (payments)
 * ดู Report
-* ดู Subscription
+* ดู Subscription ของตนเอง
 
 ---
 
 ## 4.3 TENANT_USER
 
-ผู้ใช้งานทั่วไป
+ผู้ใช้งานทั่วไปภายในองค์กร
 
 สิทธิ์:
 
 * ดู Dashboard
-* เพิ่ม Collection
-* ดู Collection
-* ดูข้อมูลตามสิทธิ์
+* บันทึกการรับชำระ (payments)
+* ดูข้อมูลลูกค้าและหนี้
+* ดู Report ตามสิทธิ์
 
 ---
 
@@ -289,12 +309,13 @@ INACTIVE
 
 # 6.2 ตาราง users
 
+> **⚠️ เปลี่ยนจาก v1.0:** ลบ `tenant_id` ออก ใช้ `tenant_memberships` แทน
+> ดูรายละเอียดใน Architecture Review §1
+
 ```sql
 CREATE TABLE users (
 
     id UUID PRIMARY KEY,
-
-    tenant_id UUID NULL,
 
     name VARCHAR(255) NOT NULL,
 
@@ -302,24 +323,29 @@ CREATE TABLE users (
 
     password_hash TEXT NOT NULL,
 
-    role VARCHAR(50) NOT NULL,
+    platform_role VARCHAR(50) DEFAULT 'USER',
 
     status VARCHAR(30) DEFAULT 'ACTIVE',
 
     last_login_at TIMESTAMP,
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (tenant_id)
-        REFERENCES tenants(id)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-### Role
+### Platform Role
 
 ```text
-SUPER_ADMIN
+USER        — ผู้ใช้งานทั่วไป (default)
+SUPER_ADMIN — ผู้ดูแลระบบ SaaS
+```
+
+### Tenant Role
+
+ Tenant-specific role อยู่ใน `tenant_memberships` table:
+
+```text
 TENANT_ADMIN
 TENANT_USER
 ```
@@ -327,11 +353,70 @@ TENANT_USER
 ### Important Rule
 
 ```text
-SUPER_ADMIN
-tenant_id = NULL
+SUPER_ADMIN = users.platform_role = 'SUPER_ADMIN'
+TENANT_*    = tenant_memberships.role (ไม่ใช่ users.role)
+```
 
-TENANT USER
-tenant_id != NULL
+---
+
+# 6.2.1 ตาราง tenant_memberships
+
+> **⚠️ เพิ่มใหม่จาก Architecture Review §1**
+> Junction table สำหรับ User ↔ Tenant Many-to-Many
+
+```sql
+CREATE TABLE tenant_memberships (
+
+    id UUID PRIMARY KEY,
+
+    tenant_id UUID NOT NULL,
+
+    user_id UUID NOT NULL,
+
+    role VARCHAR(50) NOT NULL,
+
+    status VARCHAR(30) DEFAULT 'ACTIVE',
+
+    invited_by UUID,
+
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (tenant_id)
+        REFERENCES tenants(id),
+
+    FOREIGN KEY (user_id)
+        REFERENCES users(id),
+
+    FOREIGN KEY (invited_by)
+        REFERENCES users(id),
+
+    UNIQUE(tenant_id, user_id)
+);
+```
+
+### Role
+
+```text
+TENANT_ADMIN
+TENANT_USER
+```
+
+### Status
+
+```text
+ACTIVE    — สมาชิกภาพใช้งานได้
+INVITED   — รอการตอบรับ
+SUSPENDED — ถูกระงับชั่วคราว
+```
+
+### Important Rule
+
+```text
+1 User สามารถเป็นสมาชิกของหลาย Tenant ได้
+แต่ 1 Tenant ห้ามมี membership ซ้ำ (UNIQUE constraint)
 ```
 
 ---
@@ -522,6 +607,8 @@ REJECTED
 ลูกค้าของ Tenant
 
 > หมายเหตุ: Customer ในที่นี้คือ "ลูกค้าของผู้ใช้งานระบบ" ไม่ใช่ Tenant ที่เช่าระบบ
+> **⚠️ เปลี่ยนจาก v1.0:** Status แยกจาก Debt Status
+> ดูรายละเอียดใน Architecture Review §5
 
 ```sql
 CREATE TABLE customers (
@@ -550,13 +637,27 @@ CREATE TABLE customers (
 );
 ```
 
+### Customer Status
+
+```text
+ACTIVE      — ยังเป็นลูกค้าอยู่
+INACTIVE    — ไม่ได้ทำธุรกิจร่วมกันชั่วคราว
+BLACKLISTED — ยกเลิกความสัมพันธ์ทางธุรกิจ
+```
+
+> **หมายเหตุ:** สถานะ "หนี้" (ACTIVE, OVERDUE, PAID, ...) อยู่ใน `debts.status` ไม่ใช่ customers.status
+
 ---
 
-# 6.8 ตาราง collections
+# 6.8 ตาราง collections (Legacy — เตรียมย้ายไป payments)
 
-เก็บหัวรายการ Collection
+> **⚠️ Deprecated:** ตารางนี้จะถูกแทนที่ด้วย `payments` table สำหรับข้อมูลทางการเงิน
+> สำหรับ MVP ให้ใช้ `payments` table แทน
+> ดูรายละเอียดใน Architecture Review §3
 
 ```sql
+-- ยังคงเก็บไว้เพื่อ backward compatibility
+-- ข้อมูลใหม่ให้บันทึกลง payments table แทน
 CREATE TABLE collections (
 
     id UUID PRIMARY KEY,
@@ -598,7 +699,429 @@ CREATE TABLE collections (
 
 ---
 
-# 6.9 ตาราง audit_logs
+# 6.9 ตาราง debts
+
+> **⚠️ เพิ่มใหม่จาก Architecture Review §3**
+> บันทึกภาระหนี้แต่ละรายการ
+> Product Principle: DCM คือระบบบริหารข้อมูลหนี้ ไม่ใช่ระบบ "ไล่ล่าลูกหนี้"
+
+```sql
+CREATE TABLE debts (
+
+    id UUID PRIMARY KEY,
+
+    tenant_id UUID NOT NULL,
+
+    customer_id UUID NOT NULL,
+
+    debt_code VARCHAR(100),
+
+    description TEXT,
+
+    original_amount DECIMAL(12,2) NOT NULL,
+
+    currency VARCHAR(3) DEFAULT 'THB',
+
+    debt_date DATE NOT NULL,
+
+    due_date DATE,
+
+    status VARCHAR(30) DEFAULT 'ACTIVE',
+
+    notes TEXT,
+
+    created_by UUID NOT NULL,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (tenant_id)
+        REFERENCES tenants(id),
+
+    FOREIGN KEY (customer_id)
+        REFERENCES customers(id),
+
+    FOREIGN KEY (created_by)
+        REFERENCES users(id)
+);
+```
+
+### Debt Status
+
+```text
+ACTIVE      — ยังค้างชำระ
+PARTIAL     — จ่ายบางส่วน
+PAID        — จ่ายครบแล้ว
+OVERDUE     — เลยกำหนดชำระ
+DISPUTED    — มีข้อพิพาท
+WRITTEN_OFF — ตัดหนี้
+```
+
+---
+
+# 6.10 ตาราง obligations
+
+> **⚠️ เพิ่มใหม่จาก Architecture Review §3**
+> รายละเอียดภาระผูกพันภายในหนี้แต่ละรายการ
+> (เช่น เงินต้น, ดอกเบี้ย, ค่าปรับ, ค่าธรรมเนียม)
+
+```sql
+CREATE TABLE obligations (
+
+    id UUID PRIMARY KEY,
+
+    tenant_id UUID NOT NULL,
+
+    customer_id UUID NOT NULL,
+
+    debt_id UUID NOT NULL,
+
+    obligation_type VARCHAR(50) NOT NULL,
+
+    amount DECIMAL(12,2) NOT NULL,
+
+    due_date DATE,
+
+    status VARCHAR(30) DEFAULT 'PENDING',
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (tenant_id)
+        REFERENCES tenants(id),
+
+    FOREIGN KEY (customer_id)
+        REFERENCES customers(id),
+
+    FOREIGN KEY (debt_id)
+        REFERENCES debts(id)
+);
+```
+
+### Obligation Type
+
+```text
+PRINCIPAL — เงินต้น
+INTEREST  — ดอกเบี้ย
+PENALTY   — ค่าปรับ
+FEE       — ค่าธรรมเนียม
+```
+
+### Obligation Status
+
+```text
+PENDING  — ยังไม่ได้ชำระ
+PARTIAL  — จ่ายบางส่วน
+PAID     — จ่ายครบแล้ว
+WAIVED   — ยกเว้น
+```
+
+---
+
+# 6.11 ตาราง payments (Collection Payments)
+
+> **⚠️ เพิ่มใหม่จาก Architecture Review §3**
+> บันทึกการรับชำระเงินจากลูกหนี้
+> ใช้แทน `collections` สำหรับข้อมูลทางการเงิน
+> **ห้าม DELETE รายการนี้** — ใช้ reversal แทน
+> ดูรายละเอียดใน Architecture Review §4
+
+```sql
+CREATE TABLE payments (
+
+    id UUID PRIMARY KEY,
+
+    tenant_id UUID NOT NULL,
+
+    customer_id UUID NOT NULL,
+
+    debt_id UUID,
+
+    amount DECIMAL(12,2) NOT NULL,
+
+    payment_date DATE NOT NULL,
+
+    payment_method VARCHAR(50),
+
+    reference_number VARCHAR(255),
+
+    received_by UUID,
+
+    notes TEXT,
+
+    status VARCHAR(30) DEFAULT 'CONFIRMED',
+
+    reversal_of UUID,
+
+    created_by UUID NOT NULL,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (tenant_id)
+        REFERENCES tenants(id),
+
+    FOREIGN KEY (customer_id)
+        REFERENCES customers(id),
+
+    FOREIGN KEY (debt_id)
+        REFERENCES debts(id),
+
+    FOREIGN KEY (received_by)
+        REFERENCES users(id),
+
+    FOREIGN KEY (created_by)
+        REFERENCES users(id),
+
+    FOREIGN KEY (reversal_of)
+        REFERENCES payments(id)
+);
+```
+
+### Payment Method
+
+```text
+CASH
+BANK_TRANSFER
+QR_CODE
+OTHER
+```
+
+### Payment Status
+
+```text
+PENDING    — รอการยืนยัน
+CONFIRMED  — ยืนยันแล้ว
+REVERSED   — ถูกยกเลิก (ผ่าน reversal)
+```
+
+### Important Rule
+
+```text
+ห้าม DELETE รายการ payments ไม่ว่าจะ soft หรือ hard
+ใช้ reversal แทนเมื่อต้องการ "ยกเลิกรายการ"
+```
+
+---
+
+# 6.12 ตาราง payment_allocations
+
+> **⚠️ เพิ่มใหม่จาก Architecture Review §3**
+> บันทึกการจัดสรรเงินรับไปยัง obligation แต่ละรายการ
+> ทำให้คำนวณ Outstanding Balance ได้จริง
+
+```sql
+CREATE TABLE payment_allocations (
+
+    id UUID PRIMARY KEY,
+
+    tenant_id UUID NOT NULL,
+
+    payment_id UUID NOT NULL,
+
+    obligation_id UUID NOT NULL,
+
+    allocated_amount DECIMAL(12,2) NOT NULL,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (tenant_id)
+        REFERENCES tenants(id),
+
+    FOREIGN KEY (payment_id)
+        REFERENCES payments(id),
+
+    FOREIGN KEY (obligation_id)
+        REFERENCES obligations(id)
+);
+```
+
+### Outstanding Balance Calculation
+
+```sql
+SELECT
+    c.id AS customer_id,
+    c.name AS customer_name,
+    COALESCE(SUM(d.original_amount), 0) AS total_debt,
+    COALESCE(SUM(pa.allocated_amount), 0) AS total_paid,
+    COALESCE(SUM(d.original_amount), 0)
+        - COALESCE(SUM(pa.allocated_amount), 0) AS outstanding_balance
+FROM customers c
+LEFT JOIN debts d ON d.customer_id = c.id
+    AND d.tenant_id = c.tenant_id
+    AND d.status IN ('ACTIVE', 'PARTIAL', 'OVERDUE')
+LEFT JOIN (
+    SELECT
+        p.customer_id,
+        p.tenant_id,
+        SUM(pa2.allocated_amount) AS total_paid
+    FROM payment_allocations pa2
+    JOIN payments p ON p.id = pa2.payment_id
+    WHERE p.status = 'CONFIRMED'
+    GROUP BY p.customer_id, p.tenant_id
+) pa ON pa.customer_id = c.id AND pa.tenant_id = c.tenant_id
+WHERE c.tenant_id = :current_tenant_id
+GROUP BY c.id, c.name, pa.total_paid
+ORDER BY outstanding_balance DESC;
+```
+
+---
+
+# 6.13 ตาราง reversals
+
+> **⚠️ เพิ่มใหม่จาก Architecture Review §4**
+> บันทึกการยกเลิก/แก้ไขรายการรับชำระ
+> ทุก reversal ต้องมี reason และได้รับการอนุมัติ
+
+```sql
+CREATE TABLE reversals (
+
+    id UUID PRIMARY KEY,
+
+    tenant_id UUID NOT NULL,
+
+    original_payment_id UUID NOT NULL,
+
+    reversed_by UUID NOT NULL,
+
+    reason TEXT NOT NULL,
+
+    reversal_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    status VARCHAR(30) DEFAULT 'APPROVED',
+
+    approved_by UUID,
+
+    approved_at TIMESTAMP,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (tenant_id)
+        REFERENCES tenants(id),
+
+    FOREIGN KEY (original_payment_id)
+        REFERENCES payments(id),
+
+    FOREIGN KEY (reversed_by)
+        REFERENCES users(id),
+
+    FOREIGN KEY (approved_by)
+        REFERENCES users(id)
+);
+```
+
+### Reversal Status
+
+```text
+PENDING   — รอการอนุมัติ
+APPROVED  — อนุมัติแล้ว
+REJECTED  — ปฏิเสธ
+```
+
+### Reversal Flow
+
+```text
+ต้องการแก้ไขรายการ Payment #1234
+    │
+    ▼
+สร้าง Reversal Entry (reason บังคับ)
+    │
+    ▼
+Payment #1234 status เปลี่ยนเป็น REVERSED
+    │
+    ▼
+สร้าง Payment ใหม่ (corrected) ที่ reversal_of = 1234
+    │
+    ▼
+Audit Log บันทึกทั้ง 2 รายการ
+    │
+    ▼
+Recalculate Outstanding Balance
+```
+
+---
+
+# 6.14 ตาราง customer_users (Customer Portal)
+
+> **⚠️ เพิ่มใหม่จาก Architecture Review §7**
+> เตรียมArchitecture สำหรับ Customer Portal
+> (Schema only — ไม่ต้อง implement flow ใน MVP)
+
+```sql
+CREATE TABLE customer_users (
+
+    id UUID PRIMARY KEY,
+
+    tenant_id UUID NOT NULL,
+
+    customer_id UUID NOT NULL,
+
+    email VARCHAR(255) UNIQUE NOT NULL,
+
+    password_hash TEXT NOT NULL,
+
+    name VARCHAR(255),
+
+    status VARCHAR(30) DEFAULT 'ACTIVE',
+
+    last_login_at TIMESTAMP,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (tenant_id)
+        REFERENCES tenants(id),
+
+    FOREIGN KEY (customer_id)
+        REFERENCES customers(id)
+);
+```
+
+---
+
+# 6.15 ตาราง roles
+
+> **⚠️ เพิ่มใหม่จาก Architecture Review §7**
+> Permission definitions สำหรับ RBAC system
+> (Schema only — ไม่ต้อง implement ใน MVP)
+
+```sql
+CREATE TABLE roles (
+
+    id UUID PRIMARY KEY,
+
+    tenant_id UUID,
+
+    name VARCHAR(100) NOT NULL,
+
+    description TEXT,
+
+    permissions JSONB NOT NULL,
+
+    is_system BOOLEAN DEFAULT FALSE,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (tenant_id)
+        REFERENCES tenants(id)
+);
+```
+
+### Default Roles (Seed Data)
+
+```text
+Platform:
+  - SUPER_ADMIN (platform_role)
+
+Tenant:
+  - TENANT_ADMIN (permissions: ["*"])
+  - TENANT_USER (permissions: ["customers.read", "debts.read", "payments.create", "reports.read"])
+```
+
+# 6.17 ตาราง audit_logs
+
+> **⚠️ อัปเดตจาก v1.0:** เพิ่ม `reason` field
+> ดูรายละเอียดใน Architecture Review §4
 
 ```sql
 CREATE TABLE audit_logs (
@@ -619,52 +1142,100 @@ CREATE TABLE audit_logs (
 
     new_data JSONB,
 
+    reason TEXT,
+
     ip_address VARCHAR(100),
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-ตัวอย่าง Action:
+### Action Types
 
 ```text
-CREATE_COLLECTION
-UPDATE_COLLECTION
-DELETE_COLLECTION
+-- User & Tenant
+CREATE_TENANT
+UPDATE_TENANT
+SUSPEND_TENANT
+ACTIVATE_TENANT
+CREATE_USER
+UPDATE_USER
+CREATE_MEMBERSHIP
+UPDATE_MEMBERSHIP
 
+-- Customer
 CREATE_CUSTOMER
 UPDATE_CUSTOMER
+UPDATE_CUSTOMER_STATUS
 
+-- Debt
+CREATE_DEBT
+UPDATE_DEBT
+UPDATE_DEBT_STATUS
+
+-- Payment
+CREATE_PAYMENT
 CONFIRM_PAYMENT
+REVERSE_PAYMENT
+CORRECT_PAYMENT
 
-CREATE_TENANT
-SUSPEND_TENANT
+-- Allocation
+CREATE_ALLOCATION
+
+-- Subscription
+CREATE_SUBSCRIPTION
+RENEW_SUBSCRIPTION
+CONFIRM_SUBSCRIPTION_PAYMENT
+
+-- Impersonation (SUPER_ADMIN)
+SUPER_ADMIN_IMPERSONATE
 ```
 
 ---
 
 # 7. Database Relationship
 
+> **⚠️ อัปเดตจาก v1.0:** เพิ่ม tables ใหม่จาก Architecture Review
+> ดู ERD ฉบับเต็มที่ `docs/DCM_ERD.md`
+
 ```text
-                    ┌──────────┐
-                    │  PLANS   │
-                    └────┬─────┘
-                         │
-                         ▼
-TENANTS ─────────► SUBSCRIPTIONS
-   │                    │
-   │                    ▼
-   │                 INVOICES
-   │                    │
-   │                    ▼
-   │                 PAYMENTS
-   │
-   ├──────────────► USERS
-   │
-   ├──────────────► CUSTOMERS
-   │                    │
-   │                    ▼
-   └──────────────► COLLECTIONS
+                         USERS
+                           │
+                     ┌─────┴─────┐
+                     │           │
+                Platform      Customer
+                  User          User
+                     │           │
+            ┌────────┴──┐   ┌───┴───────┐
+            │ MEMBERSHIP │   │ CUSTOMER  │
+            │   (role)   │   │  _USERS   │
+            └─────┬──────┘   └─────┬─────┘
+                  │                │
+                  ▼                ▼
+            ┌──────────┐    ┌──────────┐
+            │  TENANTS │    │          │
+            └────┬─────┘    │          │
+                 │          │          │
+      ┌──────────┼──────────┼────┐     │
+      │          │          │    │     │
+      ▼          ▼          ▼    ▼     │
+  CUSTOMERS   DEBTS    OBLIGATIONS    │
+      │          │          │         │
+      │          ▼          │         │
+      │     PAYMENTS ◄──────┘         │
+      │          │                    │
+      │          ▼                    │
+      │   PAYMENT_ALLOCATIONS         │
+      │          │                    │
+      │          ▼                    │
+      │     REVERSALS                 │
+      │          │                    │
+      └──────────┼────────────────────┘
+                 │
+                 ▼
+          ┌──────────────┐
+          │  AUDIT_LOGS  │
+          └──────────────┘
 ```
 
 ---
@@ -1295,17 +1866,26 @@ Query:
 
 # 22. API Permission Matrix
 
-| API               | SUPER_ADMIN | TENANT_ADMIN | TENANT_USER |
-| ----------------- | ----------- | ------------ | ----------- |
-| System Dashboard  | Yes         | No           | No          |
-| Tenant Management | Yes         | No           | No          |
-| Subscription      | Yes         | View         | View        |
-| Payment Confirm   | Yes         | No           | No          |
-| User Management   | Yes         | Yes          | Limited     |
-| Customer          | Yes         | Yes          | View/Create |
-| Collection        | Yes         | Yes          | Yes         |
-| Reports           | Yes         | Yes          | View        |
-| Audit Logs        | Yes         | Limited      | No          |
+> **⚠️ อัปเดตจาก v1.0:** SUPER_ADMIN ไม่มี default access ต่อข้อมูลธุรกิจของ Tenant
+> ดูรายละเอียดใน Architecture Review §2
+
+| API               | SUPER_ADMIN            | TENANT_ADMIN    | TENANT_USER     |
+| ----------------- | ---------------------- | --------------- | --------------- |
+| System Dashboard  | ✅ Yes                 | ❌ No           | ❌ No           |
+| Tenant Management | ✅ Yes                 | ❌ No           | ❌ No           |
+| Subscription      | ✅ Yes                 | 👁 View         | 👁 View         |
+| Payment Confirm   | ✅ Yes (subscription)  | ❌ No           | ❌ No           |
+| User Management   | ✅ Yes (via membership)| ✅ Yes (tenant) | ⚠️ Limited      |
+| Customer          | ❌ **No**              | ✅ Yes          | 👁 View/Create  |
+| Debt              | ❌ **No**              | ✅ Yes          | 👁 View/Create  |
+| Payment (Collection)| ❌ **No**            | ✅ Yes          | ✅ Yes          |
+| Reversal          | ❌ **No**              | ✅ Yes (approve)| ⚠️ Request only|
+| Reports           | ❌ **No**              | ✅ Yes          | 👁 View         |
+| Audit Logs        | ✅ Platform only       | 👁 Own tenant   | ❌ No           |
+
+> **⚠️ สำคัญ:** SUPER_ADMIN ห้ามเข้าถึง Customer, Debt, Payment (Collection), Reports ของ Tenant
+> ถ้าจำเป็นต้องเข้าถึง ต้องใช้ Impersonation Mode เท่านั้น
+> ดูรายละเอียดใน Architecture Review §2
 
 ---
 
@@ -2397,19 +2977,22 @@ MVP Ready for Production Pilot
 
 # 42. MVP Definition of Done
 
+> **⚠️ อัปเดตจาก v1.0:** เพิ่ม items จาก Architecture Review
+
 ระบบถือว่า MVP พร้อมทดลองใช้งานเมื่อสามารถทำงานได้ครบ:
 
 ## Authentication
 
 * [ ] Login
 * [ ] Logout
-* [ ] Role-based Access
+* [ ] Role-based Access (platform_role + membership role)
 
 ## Multi-Tenant
 
 * [ ] Tenant Isolation
 * [ ] Tenant Management
 * [ ] User Management
+* [ ] **User ↔ Tenant Many-to-Many (tenant_memberships)** ← P0
 
 ## Subscription
 
@@ -2425,12 +3008,19 @@ MVP Ready for Production Pilot
 * [ ] Payment Confirmation
 * [ ] Subscription Renewal
 
-## Collection
+## Debt Management
+
+* [ ] **Debts CRUD** ← P0
+* [ ] **Obligations (per debt)** ← P0
+* [ ] **Outstanding Balance Calculation** ← P0
+
+## Payment (Collection)
 
 * [ ] Customer Management
-* [ ] Create Collection
-* [ ] Edit Collection
-* [ ] View Collection
+* [ ] **Create Payment (replaces Create Collection)** ← P0
+* [ ] **Edit Payment** ← P0
+* [ ] View Payment
+* [ ] **Reversal Flow (no destructive delete)** ← P0
 * [ ] Daily Summary
 
 ## Reports
@@ -2441,14 +3031,17 @@ MVP Ready for Production Pilot
 
 ## System
 
-* [ ] Audit Log
+* [ ] Audit Log (with reason field)
 * [ ] Error Handling
 * [ ] Database Backup
 * [ ] Production Deployment
+* [ ] **SUPER_ADMIN cannot access tenant business data** ← P0
 
 ---
 
 # 43. Recommended Project Structure
+
+> **⚠️ อัปเดตจาก v1.0:** เพิ่ม modules ใหม่จาก Architecture Review
 
 ## Backend
 
@@ -2458,12 +3051,18 @@ src/
 ├── auth/
 ├── users/
 ├── tenants/
+├── memberships/          ← NEW (P0: tenant_memberships)
 ├── plans/
 ├── subscriptions/
 ├── invoices/
-├── payments/
+├── platform-payments/    ← RENAMED (subscription payments)
 ├── customers/
-├── collections/
+├── debts/                ← NEW (P0: debts domain)
+├── obligations/          ← NEW (P0: obligations domain)
+├── payments/             ← NEW (P0: collection payments)
+├── payment-allocations/  ← NEW (P0: payment_allocations)
+├── reversals/            ← NEW (P0: reversal flow)
+├── collections/          ← DEPRECATED (use payments instead)
 ├── reports/
 ├── dashboard/
 ├── audit/
@@ -2532,11 +3131,18 @@ collections/
 
 # 45. Critical Business Rules
 
+> **⚠️ อัปเดตจาก v1.0:** เพิ่ม Rules ใหม่จาก Architecture Review
+
 ## Rule 1 — Tenant Isolation
 
 ```text
 Tenant A
 ห้ามเห็นข้อมูล Tenant B
+```
+
+ทุก Query ต้อง Filter:
+```sql
+WHERE tenant_id = current_membership.tenant_id
 ```
 
 ---
@@ -2560,43 +3166,91 @@ Block Business Operations
 
 ---
 
-## Rule 3 — Payment Confirmation
+## Rule 3 — SUPER_ADMIN Data Isolation
 
-เฉพาะ:
+> **⚠️ เพิ่มใหม่จาก Architecture Review §2**
 
 ```text
 SUPER_ADMIN
+ห้ามเข้าถึงข้อมูลธุรกิจของ Tenant
+โดยตรง
 ```
 
-สามารถ:
+ห้ามเข้าถึง:
 
-```text
-CONFIRM PAYMENT
-```
+* Customers (ข้อมูลลูกหนี้)
+* Debts (ภาระหนี้)
+* Payments (การรับชำระ)
+* Reports (รายงานธุรกิจ)
+
+ถ้าจำเป็น ต้องใช้ Impersonation Mode เท่านั้น
 
 ---
 
-## Rule 4 — Collection Ownership
+## Rule 4 — Immutable Financial Records
 
-Collection ทุก Record ต้องมี:
+> **⚠️ เพิ่มใหม่จาก Architecture Review §4**
+
+```text
+ห้าม DELETE รายการทางการเงิน
+ไม่ว่าจะ soft หรือ hard delete
+```
+
+ใช้:
+
+* **Reversal** เมื่อต้องการ "ยกเลิกรายการ"
+* **Correction** เมื่อต้องการ "แก้ไขรายการ"
+* ทุก action บันทึกใน Audit Log พร้อม reason
+
+---
+
+## Rule 5 — Debt Ownership
+
+> **⚠️ เพิ่มใหม่จาก Architecture Review §3**
+
+ทุก Debt/Obligation/Payment Record ต้องมี:
 
 ```text
 tenant_id
+customer_id
 ```
 
 ---
 
-## Rule 5 — Audit
+## Rule 6 — Outstanding Balance
+
+> **⚠️ เพิ่มใหม่จาก Architecture Review §3**
+
+Outstanding Balance คำนวณจาก:
+
+```text
+SUM(debts.original_amount)
+  - SUM(payment_allocations.allocated_amount)
+  WHERE payments.status = 'CONFIRMED'
+```
+
+ต้อง update ทุกครั้งที่มี:
+
+* Payment ใหม่
+* Reversal
+* Allocation เปลี่ยน
+
+---
+
+## Rule 7 — Audit
 
 ทุก Transaction สำคัญต้องมี Audit Log
 
 โดยเฉพาะ:
 
 ```text
+Debt
 Payment
+Reversal
 Subscription
-Collection
 Tenant Status
+Membership
+Super Admin Impersonation
 ```
 
 ---
@@ -2638,42 +3292,54 @@ Tenant Status
 
 # 47. Final MVP Architecture
 
+> **⚠️ อัปเดตจาก v1.0:** รวม domains ใหม่จาก Architecture Review
+> ดู ERD ฉบับเต็มที่ `docs/DCM_ERD.md`
+
 ```text
                          USERS
                            │
-                           ▼
-                    ┌──────────────┐
-                    │   Next.js    │
-                    │   Frontend   │
-                    └──────┬───────┘
-                           │
-                         HTTPS
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │    NestJS    │
-                    │     API      │
-                    └──────┬───────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  ▼                  ▼
-     AUTH MODULE       BILLING            COLLECTION
-        │                  │                  │
-        │             SUBSCRIPTION        CUSTOMERS
-        │                  │                  │
-        └──────────────────┼──────────────────┘
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │ PostgreSQL   │
-                    │   Database   │
-                    └──────────────┘
+                     ┌─────┴─────┐
+                     │           │
+                Platform      Customer
+                  User          User
+                     │           │
+            ┌────────┴──┐   ┌───┴───────┐
+            │ MEMBERSHIP │   │ CUSTOMER  │
+            │   (role)   │   │  _USERS   │
+            └─────┬──────┘   └─────┬─────┘
+                  │                │
+                  ▼                ▼
+            ┌──────────┐    ┌──────────┐
+            │  TENANTS │    │          │
+            └────┬─────┘    │          │
+                 │          │          │
+      ┌──────────┼──────────┼────┐     │
+      │          │          │    │     │
+      ▼          ▼          ▼    ▼     │
+  CUSTOMERS   DEBTS    OBLIGATIONS    │
+      │          │          │         │
+      │          ▼          │         │
+      │     PAYMENTS ◄──────┘         │
+      │          │                    │
+      │          ▼                    │
+      │   PAYMENT_ALLOCATIONS         │
+      │          │                    │
+      │          ▼                    │
+      │     REVERSALS                 │
+      │          │                    │
+      └──────────┼────────────────────┘
+                 │
+                 ▼
+          ┌──────────────┐
+          │  AUDIT_LOGS  │
+          └──────────────┘
 ```
 
 ---
 
 # 48. Architecture Principle
+
+> **⚠️ อัปเดตจาก v1.0:** เพิ่มหลักจาก Architecture Review
 
 ระบบควรยึดหลัก:
 
@@ -2684,6 +3350,12 @@ Auditability
 Simple MVP
 Modular Architecture
 Scalable Design
+
+-- เพิ่มจาก Architecture Review --
+Data Privacy (SUPER_ADMIN ไม่เห็นข้อมูลธุรกิจ Tenant)
+Immutable Financial Records (ห้าม DELETE)
+Many-to-Many User-Tenant
+Separate Customer Status from Debt Status
 ```
 
 ---
