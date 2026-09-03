@@ -1,0 +1,6 @@
+- Created DCM_MVP_Roadmap_and_Progress.md based on Service Model and Technical Spec documents [2026-09-02]
+- Project: Daily Collection Management (DCM) Multi-Tenant SaaS MVP
+- Stack confirmed: Next.js + NestJS + Prisma + PostgreSQL
+- Roadmap structured as Sprint 0–8 (15–17 weeks)
+- Created Database_ERD.md (full Prisma schema + Mermaid ERD) [2026-09-03]
+- Created Sprint_Backlog.md (detailed task breakdown ~121 tasks) [2026-09-03]

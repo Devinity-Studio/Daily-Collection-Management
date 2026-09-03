@@ -1,0 +1,689 @@
+import { createServerFn } from "@tanstack/react-start";
+import { authMiddleware } from "@/lib/auth/middleware";
+import { getSql } from "@/lib/db";
+import { todayISO } from "@/lib/format";
+import type {
+  Collection,
+  Customer,
+  DailyReport,
+  DashboardData,
+  Invoice,
+  MethodBreakdown,
+  MonthlyReport,
+  Payment,
+  Subscription,
+  Tenant,
+} from "./types";
+
+function n(v: unknown): number {
+  const x = typeof v === "string" ? Number(v) : typeof v === "number" ? v : 0;
+  return Number.isFinite(x) ? x : 0;
+}
+
+function addMonthsMinusDay(iso: string, months: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCMonth(dt.getUTCMonth() + months);
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+function daysBetween(from: string, to: string): number {
+  const a = new Date(`${from}T00:00:00Z`).getTime();
+  const b = new Date(`${to}T00:00:00Z`).getTime();
+  return Math.round((b - a) / 86400000);
+}
+
+function mapTenant(row: Record<string, unknown>): Tenant {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    code: String(row.code),
+    contactName: (row.contact_name as string) ?? null,
+    phone: (row.phone as string) ?? null,
+    email: (row.email as string) ?? null,
+    status: row.status as Tenant["status"],
+    createdAt: String(row.created_at),
+  };
+}
+
+function mapSub(row: Record<string, unknown>, today: string): Subscription {
+  const expiry = String(row.expiry_date);
+  const status = String(row.status) as Subscription["status"];
+  const remaining = status === "ACTIVE" ? Math.max(0, daysBetween(today, expiry)) : 0;
+  return {
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    planName: String(row.plan_name),
+    price: n(row.price),
+    startDate: String(row.start_date),
+    expiryDate: expiry,
+    status,
+    daysRemaining: remaining,
+  };
+}
+
+async function listTenants(userId: string): Promise<Tenant[]> {
+  const sql = await getSql();
+  const rows = await sql<Record<string, unknown>>`
+    select id, name, code, contact_name, phone, email, status, created_at::text
+    from dcm_tenants where user_id = ${userId} order by created_at asc`;
+  return rows.map(mapTenant);
+}
+
+async function refreshSubscriptionStatus(userId: string, tenantId: string) {
+  const sql = await getSql();
+  const today = todayISO();
+  await sql`
+    update dcm_subscriptions
+    set status = 'EXPIRED'
+    where user_id = ${userId}
+      and tenant_id = ${tenantId}
+      and status = 'ACTIVE'
+      and expiry_date < ${today}`;
+}
+
+async function ensureWorkspace(userId: string): Promise<{ tenantId: string }> {
+  const sql = await getSql();
+  const today = todayISO();
+
+  let tenants = await listTenants(userId);
+  if (tenants.length === 0) {
+    const tenantId = crypto.randomUUID();
+    const code = `T${today.replaceAll("-", "").slice(2)}`;
+    await sql`
+      insert into dcm_tenants (id, user_id, name, code, contact_name, status)
+      values (${tenantId}, ${userId}, ${"บริษัท เงินวัน จำกัด"}, ${code}, ${"ผู้ดูแลระบบ"}, ${"ACTIVE"})`;
+    const subId = crypto.randomUUID();
+    const expiry = addMonthsMinusDay(today, 1);
+    await sql`
+      insert into dcm_subscriptions (id, user_id, tenant_id, plan_name, price, start_date, expiry_date, status)
+      values (${subId}, ${userId}, ${tenantId}, ${"Standard"}, ${5000}, ${today}, ${expiry}, ${"ACTIVE"})`;
+    await sql`
+      insert into dcm_profiles (user_id, active_tenant_id)
+      values (${userId}, ${tenantId})
+      on conflict (user_id) do update set active_tenant_id = excluded.active_tenant_id`;
+    await seedDemo(userId, tenantId, today);
+    return { tenantId };
+  }
+
+  const profiles = await sql<{ active_tenant_id: string | null }>`
+    select active_tenant_id from dcm_profiles where user_id = ${userId}`;
+  let tenantId = profiles[0]?.active_tenant_id ?? tenants[0]!.id;
+  if (!tenants.some((t) => t.id === tenantId)) tenantId = tenants[0]!.id;
+  if (!profiles[0]) {
+    await sql`insert into dcm_profiles (user_id, active_tenant_id) values (${userId}, ${tenantId})`;
+  }
+
+  const subs = await sql`
+    select id from dcm_subscriptions where user_id = ${userId} and tenant_id = ${tenantId} limit 1`;
+  if (subs.length === 0) {
+    const expiry = addMonthsMinusDay(today, 1);
+    await sql`
+      insert into dcm_subscriptions (id, user_id, tenant_id, plan_name, price, start_date, expiry_date, status)
+      values (${crypto.randomUUID()}, ${userId}, ${tenantId}, ${"Standard"}, ${5000}, ${today}, ${expiry}, ${"ACTIVE"})`;
+  }
+
+  await refreshSubscriptionStatus(userId, tenantId);
+  return { tenantId };
+}
+
+async function seedDemo(userId: string, tenantId: string, today: string) {
+  const sql = await getSql();
+  const customers = [
+    { code: "C001", name: "ร้านข้าวมันไก่สมชาย", phone: "0812340001", address: "ลาดพร้าว กรุงเทพฯ" },
+    { code: "C002", name: "ก๋วยเตี๋ยวเรือนายวิชัย", phone: "0891112233", address: "บางกะปิ กรุงเทพฯ" },
+    { code: "C003", name: "หจก. สว่างการค้า", phone: "022345678", address: "รามอินทรา กรุงเทพฯ" },
+    { code: "C004", name: "ร้านกาแฟต้นไม้", phone: "0865551212", address: "อารีย์ กรุงเทพฯ" },
+    { code: "C005", name: "บจก. พัฒนาทรัพย์", phone: "0918887766", address: "พระราม 9 กรุงเทพฯ" },
+    { code: "C006", name: "ตลาดสดแม่ศรี", phone: "0832224455", address: "มีนบุรี กรุงเทพฯ" },
+  ];
+  const ids: string[] = [];
+  for (const c of customers) {
+    const id = crypto.randomUUID();
+    ids.push(id);
+    await sql`
+      insert into dcm_customers (id, user_id, tenant_id, customer_code, name, phone, address, status)
+      values (${id}, ${userId}, ${tenantId}, ${c.code}, ${c.name}, ${c.phone}, ${c.address}, ${"ACTIVE"})`;
+  }
+
+  const methods = ["CASH", "BANK_TRANSFER", "QR_CODE"] as const;
+  const collectors = ["สมชาย", "วิชัย", "กมล"];
+  const amounts = [500, 750, 1000, 1200, 1500, 2000, 2500, 3200, 4500, 800];
+  for (let dayOffset = 0; dayOffset < 12; dayOffset++) {
+    const d = new Date(`${today}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - dayOffset);
+    const date = d.toISOString().slice(0, 10);
+    const count = dayOffset === 0 ? 6 : 3 + (dayOffset % 3);
+    for (let i = 0; i < count; i++) {
+      const cid = ids[(dayOffset + i) % ids.length]!;
+      const amount = amounts[(dayOffset * 3 + i) % amounts.length]!;
+      const method = methods[(dayOffset + i) % methods.length]!;
+      const collector = collectors[(i + dayOffset) % collectors.length]!;
+      await sql`
+        insert into dcm_collections
+          (id, user_id, tenant_id, customer_id, collection_date, amount, payment_method, collector_name, note)
+        values (
+          ${crypto.randomUUID()}, ${userId}, ${tenantId}, ${cid}, ${date},
+          ${amount}, ${method}, ${collector}, ${null}
+        )`;
+    }
+  }
+}
+
+export const getDashboard = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<DashboardData> => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const today = todayISO();
+    const monthStart = `${today.slice(0, 7)}-01`;
+
+    const tenants = await listTenants(context.userId);
+    const tenant = tenants.find((t) => t.id === tenantId) ?? tenants[0]!;
+
+    const subRows = await sql<Record<string, unknown>>`
+      select id, tenant_id, plan_name, price, start_date, expiry_date, status
+      from dcm_subscriptions
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+      order by created_at desc limit 1`;
+    const subscription = mapSub(subRows[0]!, today);
+
+    const todayAgg = await sql<{ total: string; n: number }>`
+      select coalesce(sum(amount),0)::text as total, count(*)::int as n
+      from dcm_collections
+      where user_id = ${context.userId} and tenant_id = ${tenantId} and collection_date = ${today}`;
+    const monthAgg = await sql<{ total: string; n: number }>`
+      select coalesce(sum(amount),0)::text as total, count(*)::int as n
+      from dcm_collections
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+        and collection_date >= ${monthStart} and collection_date <= ${today}`;
+    const todayByMethod = await sql<{ method: string; total: string; n: number }>`
+      select payment_method as method, coalesce(sum(amount),0)::text as total, count(*)::int as n
+      from dcm_collections
+      where user_id = ${context.userId} and tenant_id = ${tenantId} and collection_date = ${today}
+      group by payment_method`;
+    const recentRows = await sql<Record<string, unknown>>`
+      select c.id, c.customer_id, cu.name as customer_name, c.collection_date, c.amount,
+             c.payment_method, c.collector_name, c.note, c.created_at::text
+      from dcm_collections c
+      join dcm_customers cu on cu.id = c.customer_id
+      where c.user_id = ${context.userId} and c.tenant_id = ${tenantId}
+      order by c.collection_date desc, c.created_at desc
+      limit 8`;
+    const pending = await sql<{ n: number }>`
+      select count(*)::int as n from dcm_payments
+      where user_id = ${context.userId} and tenant_id = ${tenantId} and status = 'PENDING'`;
+
+    return {
+      tenant,
+      tenants,
+      subscription,
+      todayAmount: n(todayAgg[0]?.total),
+      todayCount: todayAgg[0]?.n ?? 0,
+      monthAmount: n(monthAgg[0]?.total),
+      monthCount: monthAgg[0]?.n ?? 0,
+      todayByMethod: todayByMethod.map((r) => ({
+        method: r.method,
+        amount: n(r.total),
+        count: r.n,
+      })),
+      recent: recentRows.map((r) => ({
+        id: String(r.id),
+        customerId: String(r.customer_id),
+        customerName: String(r.customer_name),
+        collectionDate: String(r.collection_date),
+        amount: n(r.amount),
+        paymentMethod: r.payment_method as Collection["paymentMethod"],
+        collectorName: (r.collector_name as string) ?? null,
+        note: (r.note as string) ?? null,
+        createdAt: String(r.created_at),
+      })),
+      pendingPayments: pending[0]?.n ?? 0,
+      locked: subscription.status !== "ACTIVE",
+    };
+  });
+
+export const switchTenant = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { tenantId: string }) => d)
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const rows = await sql`
+      select id from dcm_tenants where id = ${data.tenantId} and user_id = ${context.userId}`;
+    if (!rows[0]) throw new Error("ไม่พบองค์กร");
+    await sql`
+      insert into dcm_profiles (user_id, active_tenant_id)
+      values (${context.userId}, ${data.tenantId})
+      on conflict (user_id) do update set active_tenant_id = excluded.active_tenant_id`;
+    return { ok: true };
+  });
+
+export const createTenant = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { name: string; contactName?: string; phone?: string }) => d)
+  .handler(async ({ context, data }) => {
+    const name = data.name.trim();
+    if (!name) throw new Error("กรุณากรอกชื่อองค์กร");
+    const sql = await getSql();
+    const today = todayISO();
+    const id = crypto.randomUUID();
+    const code = `T${Date.now().toString().slice(-6)}`;
+    await sql`
+      insert into dcm_tenants (id, user_id, name, code, contact_name, phone, status)
+      values (${id}, ${context.userId}, ${name}, ${code}, ${data.contactName || null}, ${data.phone || null}, ${"ACTIVE"})`;
+    const expiry = addMonthsMinusDay(today, 1);
+    await sql`
+      insert into dcm_subscriptions (id, user_id, tenant_id, plan_name, price, start_date, expiry_date, status)
+      values (${crypto.randomUUID()}, ${context.userId}, ${id}, ${"Standard"}, ${5000}, ${today}, ${expiry}, ${"ACTIVE"})`;
+    await sql`
+      insert into dcm_profiles (user_id, active_tenant_id)
+      values (${context.userId}, ${id})
+      on conflict (user_id) do update set active_tenant_id = excluded.active_tenant_id`;
+    return { id };
+  });
+
+export const listCustomers = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<Customer[]> => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const rows = await sql<Record<string, unknown>>`
+      select cu.id, cu.customer_code, cu.name, cu.phone, cu.address, cu.status, cu.created_at::text,
+             coalesce(sum(col.amount),0)::text as total_amount,
+             count(col.id)::int as total_count
+      from dcm_customers cu
+      left join dcm_collections col
+        on col.customer_id = cu.id and col.user_id = cu.user_id
+      where cu.user_id = ${context.userId} and cu.tenant_id = ${tenantId}
+      group by cu.id
+      order by cu.created_at desc`;
+    return rows.map((r) => ({
+      id: String(r.id),
+      customerCode: (r.customer_code as string) ?? null,
+      name: String(r.name),
+      phone: (r.phone as string) ?? null,
+      address: (r.address as string) ?? null,
+      status: String(r.status),
+      createdAt: String(r.created_at),
+      totalAmount: n(r.total_amount),
+      totalCount: n(r.total_count),
+    }));
+  });
+
+export const saveCustomer = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    (d: {
+      id?: string;
+      name: string;
+      customerCode?: string;
+      phone?: string;
+      address?: string;
+    }) => d,
+  )
+  .handler(async ({ context, data }) => {
+    const name = data.name.trim();
+    if (!name) throw new Error("กรุณากรอกชื่อลูกค้า");
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    if (data.id) {
+      await sql`
+        update dcm_customers
+        set name = ${name},
+            customer_code = ${data.customerCode?.trim() || null},
+            phone = ${data.phone?.trim() || null},
+            address = ${data.address?.trim() || null}
+        where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+      return { id: data.id };
+    }
+    const id = crypto.randomUUID();
+    await sql`
+      insert into dcm_customers (id, user_id, tenant_id, customer_code, name, phone, address, status)
+      values (
+        ${id}, ${context.userId}, ${tenantId},
+        ${data.customerCode?.trim() || null}, ${name},
+        ${data.phone?.trim() || null}, ${data.address?.trim() || null}, ${"ACTIVE"}
+      )`;
+    return { id };
+  });
+
+export const disableCustomer = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { id: string }) => d)
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    await sql`
+      update dcm_customers set status = 'DISABLED'
+      where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+    return { ok: true };
+  });
+
+export const listCollections = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((d?: { dateFrom?: string; dateTo?: string; customerId?: string }) => d ?? {})
+  .handler(async ({ context, data }): Promise<Collection[]> => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const from = data.dateFrom || "2000-01-01";
+    const to = data.dateTo || "2100-01-01";
+    const customerId = data.customerId || null;
+    const rows = await sql<Record<string, unknown>>`
+      select c.id, c.customer_id, cu.name as customer_name, c.collection_date, c.amount,
+             c.payment_method, c.collector_name, c.note, c.created_at::text
+      from dcm_collections c
+      join dcm_customers cu on cu.id = c.customer_id
+      where c.user_id = ${context.userId} and c.tenant_id = ${tenantId}
+        and c.collection_date >= ${from} and c.collection_date <= ${to}
+        and (${customerId}::text is null or c.customer_id = ${customerId})
+      order by c.collection_date desc, c.created_at desc
+      limit 200`;
+    return rows.map((r) => ({
+      id: String(r.id),
+      customerId: String(r.customer_id),
+      customerName: String(r.customer_name),
+      collectionDate: String(r.collection_date),
+      amount: n(r.amount),
+      paymentMethod: r.payment_method as Collection["paymentMethod"],
+      collectorName: (r.collector_name as string) ?? null,
+      note: (r.note as string) ?? null,
+      createdAt: String(r.created_at),
+    }));
+  });
+
+export const saveCollection = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    (d: {
+      id?: string;
+      customerId: string;
+      collectionDate: string;
+      amount: number;
+      paymentMethod: string;
+      collectorName?: string;
+      note?: string;
+    }) => d,
+  )
+  .handler(async ({ context, data }) => {
+    if (!data.customerId) throw new Error("กรุณาเลือกลูกค้า");
+    if (!Number.isFinite(data.amount) || data.amount <= 0) throw new Error("จำนวนเงินต้องมากกว่า 0");
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    await refreshSubscriptionStatus(context.userId, tenantId);
+    const sub = await sql<{ status: string }>`
+      select status from dcm_subscriptions
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+      order by created_at desc limit 1`;
+    if (sub[0]?.status !== "ACTIVE") throw new Error("สิทธิ์การใช้งานหมดอายุ กรุณาชำระค่าบริการ");
+    const cust = await sql`
+      select id from dcm_customers
+      where id = ${data.customerId} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+    if (!cust[0]) throw new Error("ไม่พบลูกค้า");
+    if (data.id) {
+      await sql`
+        update dcm_collections
+        set customer_id = ${data.customerId},
+            collection_date = ${data.collectionDate},
+            amount = ${data.amount},
+            payment_method = ${data.paymentMethod},
+            collector_name = ${data.collectorName?.trim() || null},
+            note = ${data.note?.trim() || null}
+        where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+      return { id: data.id };
+    }
+    const id = crypto.randomUUID();
+    await sql`
+      insert into dcm_collections
+        (id, user_id, tenant_id, customer_id, collection_date, amount, payment_method, collector_name, note)
+      values (
+        ${id}, ${context.userId}, ${tenantId}, ${data.customerId}, ${data.collectionDate},
+        ${data.amount}, ${data.paymentMethod}, ${data.collectorName?.trim() || null}, ${data.note?.trim() || null}
+      )`;
+    return { id };
+  });
+
+export const deleteCollection = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { id: string }) => d)
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    await sql`
+      delete from dcm_collections
+      where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+    return { ok: true };
+  });
+
+export const getDailyReport = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((d: { date: string }) => d)
+  .handler(async ({ context, data }): Promise<DailyReport> => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const date = data.date;
+    const agg = await sql<{ total: string; n: number }>`
+      select coalesce(sum(amount),0)::text as total, count(*)::int as n
+      from dcm_collections
+      where user_id = ${context.userId} and tenant_id = ${tenantId} and collection_date = ${date}`;
+    const byMethod = await sql<{ method: string; total: string; n: number }>`
+      select payment_method as method, coalesce(sum(amount),0)::text as total, count(*)::int as n
+      from dcm_collections
+      where user_id = ${context.userId} and tenant_id = ${tenantId} and collection_date = ${date}
+      group by payment_method`;
+    const itemRows = await sql<Record<string, unknown>>`
+      select c.id, c.customer_id, cu.name as customer_name, c.collection_date, c.amount,
+             c.payment_method, c.collector_name, c.note, c.created_at::text
+      from dcm_collections c
+      join dcm_customers cu on cu.id = c.customer_id
+      where c.user_id = ${context.userId} and c.tenant_id = ${tenantId}
+        and c.collection_date = ${date}
+      order by c.created_at desc`;
+    const items: Collection[] = itemRows.map((r) => ({
+      id: String(r.id),
+      customerId: String(r.customer_id),
+      customerName: String(r.customer_name),
+      collectionDate: String(r.collection_date),
+      amount: n(r.amount),
+      paymentMethod: r.payment_method as Collection["paymentMethod"],
+      collectorName: (r.collector_name as string) ?? null,
+      note: (r.note as string) ?? null,
+      createdAt: String(r.created_at),
+    }));
+    return {
+      date,
+      totalAmount: n(agg[0]?.total),
+      totalCount: agg[0]?.n ?? 0,
+      byMethod: byMethod.map((r) => ({ method: r.method, amount: n(r.total), count: r.n })),
+      items,
+    };
+  });
+
+export const getMonthlyReport = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((d: { year: number; month: number }) => d)
+  .handler(async ({ context, data }): Promise<MonthlyReport> => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const month = String(data.month).padStart(2, "0");
+    const from = `${data.year}-${month}-01`;
+    const last = new Date(Date.UTC(data.year, data.month, 0)).getUTCDate();
+    const to = `${data.year}-${month}-${String(last).padStart(2, "0")}`;
+    const agg = await sql<{ total: string; n: number }>`
+      select coalesce(sum(amount),0)::text as total, count(*)::int as n
+      from dcm_collections
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+        and collection_date >= ${from} and collection_date <= ${to}`;
+    const byMethod = await sql<{ method: string; total: string; n: number }>`
+      select payment_method as method, coalesce(sum(amount),0)::text as total, count(*)::int as n
+      from dcm_collections
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+        and collection_date >= ${from} and collection_date <= ${to}
+      group by payment_method`;
+    const byDay = await sql<{ date: string; total: string; n: number }>`
+      select collection_date as date, coalesce(sum(amount),0)::text as total, count(*)::int as n
+      from dcm_collections
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+        and collection_date >= ${from} and collection_date <= ${to}
+      group by collection_date
+      order by collection_date`;
+    const top = await sql<{ name: string; total: string; n: number }>`
+      select cu.name, coalesce(sum(c.amount),0)::text as total, count(c.id)::int as n
+      from dcm_collections c
+      join dcm_customers cu on cu.id = c.customer_id
+      where c.user_id = ${context.userId} and c.tenant_id = ${tenantId}
+        and c.collection_date >= ${from} and c.collection_date <= ${to}
+      group by cu.name
+      order by sum(c.amount) desc
+      limit 5`;
+    return {
+      year: data.year,
+      month: data.month,
+      totalAmount: n(agg[0]?.total),
+      totalCount: agg[0]?.n ?? 0,
+      byMethod: byMethod.map((r) => ({ method: r.method, amount: n(r.total), count: r.n })),
+      byDay: byDay.map((r) => ({ date: r.date, amount: n(r.total), count: r.n })),
+      topCustomers: top.map((r) => ({ name: r.name, amount: n(r.total), count: r.n })),
+    };
+  });
+
+export const getBilling = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<{
+    subscription: Subscription;
+    invoices: Invoice[];
+    payments: Payment[];
+    locked: boolean;
+  }> => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    await refreshSubscriptionStatus(context.userId, tenantId);
+    const today = todayISO();
+    const subRows = await sql<Record<string, unknown>>`
+      select id, tenant_id, plan_name, price, start_date, expiry_date, status
+      from dcm_subscriptions
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+      order by created_at desc limit 1`;
+    const subscription = mapSub(subRows[0]!, today);
+    const invoices = await sql<Record<string, unknown>>`
+      select id, invoice_number, amount, due_date, status, created_at::text
+      from dcm_invoices
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+      order by created_at desc`;
+    const payments = await sql<Record<string, unknown>>`
+      select id, invoice_id, amount, payment_method, payment_reference, status, note, created_at::text
+      from dcm_payments
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+      order by created_at desc`;
+    return {
+      subscription,
+      invoices: invoices.map((r) => ({
+        id: String(r.id),
+        invoiceNumber: String(r.invoice_number),
+        amount: n(r.amount),
+        dueDate: (r.due_date as string) ?? null,
+        status: r.status as Invoice["status"],
+        createdAt: String(r.created_at),
+      })),
+      payments: payments.map((r) => ({
+        id: String(r.id),
+        invoiceId: String(r.invoice_id),
+        amount: n(r.amount),
+        paymentMethod: (r.payment_method as string) ?? null,
+        paymentReference: (r.payment_reference as string) ?? null,
+        status: r.status as Payment["status"],
+        note: (r.note as string) ?? null,
+        createdAt: String(r.created_at),
+      })),
+      locked: subscription.status !== "ACTIVE",
+    };
+  });
+
+export const submitPayment = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { paymentMethod: string; paymentReference: string; note?: string }) => d)
+  .handler(async ({ context, data }) => {
+    const ref = data.paymentReference.trim();
+    if (!ref) throw new Error("กรุณากรอกเลขที่อ้างอิงการโอน");
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const sub = await sql<Record<string, unknown>>`
+      select id, price from dcm_subscriptions
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+      order by created_at desc limit 1`;
+    if (!sub[0]) throw new Error("ไม่พบแพ็กเกจ");
+    const amount = n(sub[0].price);
+    let invoice = await sql<{ id: string }>`
+      select id from dcm_invoices
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+        and subscription_id = ${String(sub[0].id)} and status = 'PENDING'
+      order by created_at desc limit 1`;
+    if (!invoice[0]) {
+      const invoiceId = crypto.randomUUID();
+      const num = `INV-${todayISO().replaceAll("-", "")}-${String(Date.now()).slice(-4)}`;
+      await sql`
+        insert into dcm_invoices (id, user_id, tenant_id, subscription_id, invoice_number, amount, due_date, status)
+        values (${invoiceId}, ${context.userId}, ${tenantId}, ${String(sub[0].id)}, ${num}, ${amount}, ${todayISO()}, ${"PENDING"})`;
+      invoice = [{ id: invoiceId }];
+    }
+    const payId = crypto.randomUUID();
+    await sql`
+      insert into dcm_payments (id, user_id, tenant_id, invoice_id, amount, payment_method, payment_reference, status, note)
+      values (
+        ${payId}, ${context.userId}, ${tenantId}, ${invoice[0]!.id}, ${amount},
+        ${data.paymentMethod}, ${ref}, ${"PENDING"}, ${data.note?.trim() || null}
+      )`;
+    await sql`
+      update dcm_subscriptions set status = 'PENDING_PAYMENT'
+      where id = ${String(sub[0].id)} and user_id = ${context.userId} and status = 'EXPIRED'`;
+    return { id: payId };
+  });
+
+export const confirmPayment = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { paymentId: string; reject?: boolean }) => d)
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const pay = await sql<Record<string, unknown>>`
+      select id, invoice_id, status from dcm_payments
+      where id = ${data.paymentId} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+    if (!pay[0]) throw new Error("ไม่พบรายการชำระ");
+    if (String(pay[0].status) !== "PENDING") throw new Error("รายการนี้ดำเนินการแล้ว");
+    if (data.reject) {
+      await sql`
+        update dcm_payments set status = 'REJECTED'
+        where id = ${data.paymentId} and user_id = ${context.userId}`;
+      return { ok: true };
+    }
+    const today = todayISO();
+    await sql`
+      update dcm_payments set status = 'CONFIRMED'
+      where id = ${data.paymentId} and user_id = ${context.userId}`;
+    await sql`
+      update dcm_invoices set status = 'PAID'
+      where id = ${String(pay[0].invoice_id)} and user_id = ${context.userId}`;
+    const sub = await sql<{ id: string; expiry_date: string }>`
+      select id, expiry_date from dcm_subscriptions
+      where user_id = ${context.userId} and tenant_id = ${tenantId}
+      order by created_at desc limit 1`;
+    if (sub[0]) {
+      const base = sub[0].expiry_date >= today ? sub[0].expiry_date : today;
+      const start = sub[0].expiry_date >= today
+        ? (() => {
+            const d = new Date(`${sub[0].expiry_date}T00:00:00Z`);
+            d.setUTCDate(d.getUTCDate() + 1);
+            return d.toISOString().slice(0, 10);
+          })()
+        : today;
+      const expiry = addMonthsMinusDay(start, 1);
+      void base;
+      await sql`
+        update dcm_subscriptions
+        set start_date = ${start}, expiry_date = ${expiry}, status = 'ACTIVE'
+        where id = ${sub[0].id} and user_id = ${context.userId}`;
+    }
+    return { ok: true };
+  });
+
+export type MethodBreakdownPublic = MethodBreakdown;
