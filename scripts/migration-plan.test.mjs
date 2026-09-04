@@ -58,8 +58,17 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
 
 test("the auth schema ships outside the globbed directory", () => {
   const migrationsDir = join(projectRoot(), "migrations");
-  assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []), []);
+  const entries = readdirSync(migrationsDir);
+  const pending = pendingMigrations(entries, []);
+  // The auth schema lives in migrations/auth/, not at the top level
+  assert.ok(!entries.filter((e) => isMigrationFile(e)).some((f) => f.startsWith("0001_auth")),
+    "0001_auth.sql should not be at the top level of migrations/");
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+  // The project may have its own migration files — only verify auth stays separate
+  for (const m of pending) {
+    assert.ok(!m.name.startsWith("0001_auth"),
+      `pending migration ${m.name} should not be the auth schema`);
+  }
 });
 
 test("this workspace's auth schema copy is byte-identical to its source", () => {
