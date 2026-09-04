@@ -14,10 +14,14 @@ import { Route as AccountsRouteImport } from './routes/accounts'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as CollectionsRouteImport } from './routes/collections'
 import { Route as CustomersRouteImport } from './routes/customers'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as MembersRouteImport } from './routes/members'
 import { Route as ReportsRouteImport } from './routes/reports'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SubscriptionRouteImport } from './routes/subscription'
 import { Route as TenantsRouteImport } from './routes/tenants'
+import { Route as ApiForgotPasswordTokenRouteImport } from './routes/api/forgot-password-token'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -45,14 +49,29 @@ const CustomersRoute = CustomersRouteImport.update({
   path: '/customers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MembersRoute = MembersRouteImport.update({
+  id: '/members',
+  path: '/members',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReportsRoute = ReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SubscriptionRoute = SubscriptionRouteImport.update({
@@ -63,6 +82,11 @@ const SubscriptionRoute = SubscriptionRouteImport.update({
 const TenantsRoute = TenantsRouteImport.update({
   id: '/tenants',
   path: '/tenants',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiForgotPasswordTokenRoute = ApiForgotPasswordTokenRouteImport.update({
+  id: '/api/forgot-password-token',
+  path: '/api/forgot-password-token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -77,10 +101,14 @@ export interface FileRoutesByFullPath {
   '/audit': typeof AuditRoute
   '/collections': typeof CollectionsRoute
   '/customers': typeof CustomersRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/members': typeof MembersRoute
   '/reports': typeof ReportsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/subscription': typeof SubscriptionRoute
   '/tenants': typeof TenantsRoute
+  '/api/forgot-password-token': typeof ApiForgotPasswordTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -89,10 +117,14 @@ export interface FileRoutesByTo {
   '/audit': typeof AuditRoute
   '/collections': typeof CollectionsRoute
   '/customers': typeof CustomersRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/members': typeof MembersRoute
   '/reports': typeof ReportsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/subscription': typeof SubscriptionRoute
   '/tenants': typeof TenantsRoute
+  '/api/forgot-password-token': typeof ApiForgotPasswordTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -102,10 +134,14 @@ export interface FileRoutesById {
   '/audit': typeof AuditRoute
   '/collections': typeof CollectionsRoute
   '/customers': typeof CustomersRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/members': typeof MembersRoute
   '/reports': typeof ReportsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/subscription': typeof SubscriptionRoute
   '/tenants': typeof TenantsRoute
+  '/api/forgot-password-token': typeof ApiForgotPasswordTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
@@ -116,10 +152,14 @@ export interface FileRouteTypes {
     | '/audit'
     | '/collections'
     | '/customers'
+    | '/forgot-password'
     | '/login'
+    | '/members'
     | '/reports'
+    | '/reset-password'
     | '/subscription'
     | '/tenants'
+    | '/api/forgot-password-token'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -128,10 +168,14 @@ export interface FileRouteTypes {
     | '/audit'
     | '/collections'
     | '/customers'
+    | '/forgot-password'
     | '/login'
+    | '/members'
     | '/reports'
+    | '/reset-password'
     | '/subscription'
     | '/tenants'
+    | '/api/forgot-password-token'
     | '/api/auth/$'
   id:
     | '__root__'
@@ -140,10 +184,14 @@ export interface FileRouteTypes {
     | '/audit'
     | '/collections'
     | '/customers'
+    | '/forgot-password'
     | '/login'
+    | '/members'
     | '/reports'
+    | '/reset-password'
     | '/subscription'
     | '/tenants'
+    | '/api/forgot-password-token'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
@@ -153,10 +201,14 @@ export interface RootRouteChildren {
   AuditRoute: typeof AuditRoute
   CollectionsRoute: typeof CollectionsRoute
   CustomersRoute: typeof CustomersRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
+  MembersRoute: typeof MembersRoute
   ReportsRoute: typeof ReportsRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   SubscriptionRoute: typeof SubscriptionRoute
   TenantsRoute: typeof TenantsRoute
+  ApiForgotPasswordTokenRoute: typeof ApiForgotPasswordTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -197,6 +249,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CustomersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -204,11 +263,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/members': {
+      id: '/members'
+      path: '/members'
+      fullPath: '/members'
+      preLoaderRoute: typeof MembersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reports': {
       id: '/reports'
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof ReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/subscription': {
@@ -223,6 +296,13 @@ declare module '@tanstack/react-router' {
       path: '/tenants'
       fullPath: '/tenants'
       preLoaderRoute: typeof TenantsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/forgot-password-token': {
+      id: '/api/forgot-password-token'
+      path: '/api/forgot-password-token'
+      fullPath: '/api/forgot-password-token'
+      preLoaderRoute: typeof ApiForgotPasswordTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -241,10 +321,14 @@ const rootRouteChildren: RootRouteChildren = {
   AuditRoute: AuditRoute,
   CollectionsRoute: CollectionsRoute,
   CustomersRoute: CustomersRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
+  MembersRoute: MembersRoute,
   ReportsRoute: ReportsRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   SubscriptionRoute: SubscriptionRoute,
   TenantsRoute: TenantsRoute,
+  ApiForgotPasswordTokenRoute: ApiForgotPasswordTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

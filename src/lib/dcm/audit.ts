@@ -26,7 +26,8 @@ export type AuditEntity =
   | "invoice"
   | "payment"
   | "tenant"
-  | "profile";
+  | "profile"
+  | "membership";
 
 /**
  * Audit log entry shape (as stored in DB).

@@ -1093,3 +1093,180 @@ export const recordInstallmentPayment = createServerFn({ method: "POST" })
     });
     return { ok: true, newStatus };
   });
+
+// ── Membership / RBAC server functions ───────────────────────────
+
+type RoleRow = { id: string; name: string; description: string | null; permissions: string };
+
+function mapRole(row: RoleRow): import("./rbac").Role {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    permissions: JSON.parse(row.permissions) as import("./rbac").Permission[],
+  };
+}
+
+function mapMembership(row: Record<string, unknown>): import("./rbac").Membership {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    tenantId: String(row.tenant_id),
+    roleId: String(row.role_id),
+    roleName: String(row.role_name),
+    invitedBy: (row.invited_by as string) ?? null,
+    status: row.status as import("./rbac").MembershipStatus,
+    createdAt: String(row.created_at),
+  };
+}
+
+/** Get the user's membership for a tenant, including role info. */
+async function getMembership(userId: string, tenantId: string) {
+  const sql = await getSql();
+  const rows = await sql<Record<string, unknown>>`
+    select m.id, m.user_id, m.tenant_id, m.role_id, r.name as role_name,
+           m.invited_by, m.status, m.created_at::text
+    from dcm_memberships m
+    join dcm_roles r on r.id = m.role_id
+    where m.user_id = ${userId} and m.tenant_id = ${tenantId} and m.status = 'ACTIVE'
+    limit 1`;
+  return rows[0] ? mapMembership(rows[0]) : null;
+}
+
+/** Ensure the user has an Owner membership for the tenant (auto-create for first user). */
+async function ensureMembership(userId: string, tenantId: string): Promise<import("./rbac").Membership> {
+  const existing = await getMembership(userId, tenantId);
+  if (existing) return existing;
+  const sql = await getSql();
+  const id = crypto.randomUUID();
+  await sql`
+    insert into dcm_memberships (id, user_id, tenant_id, role_id, status)
+    values (${id}, ${userId}, ${tenantId}, ${"role_owner"}, ${"ACTIVE"})
+    on conflict (user_id, tenant_id) do nothing`;
+  const created = await getMembership(userId, tenantId);
+  if (!created) throw new Error("ไม่สามารถสร้างสิทธิ์สมาชิกได้");
+  return created;
+}
+
+export const listRoles = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<import("./rbac").Role[]> => {
+    const sql = await getSql();
+    const rows = await sql<RoleRow>`
+      select id, name, description, permissions::text from dcm_roles order by name`;
+    return rows.map(mapRole);
+  });
+
+export const listMembers = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<import("./rbac").MembershipWithUser[]> => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    // Ensure current user has a membership
+    await ensureMembership(context.userId, tenantId);
+    const rows = await sql<Record<string, unknown>>`
+      select m.id, m.user_id, m.tenant_id, m.role_id, r.name as role_name,
+             m.invited_by, m.status, m.created_at::text,
+             u.name as user_name, u.email as user_email
+      from dcm_memberships m
+      join dcm_roles r on r.id = m.role_id
+      left join "user" u on u.id = m.user_id
+      where m.tenant_id = ${tenantId}
+      order by r.name, m.created_at`;
+    return rows.map((r) => ({
+      ...mapMembership(r),
+      userName: (r.user_name as string) ?? null,
+      userEmail: (r.user_email as string) ?? null,
+    }));
+  });
+
+export const addMember = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { email: string; roleId: string }) => d)
+  .handler(async ({ context, data }) => {
+    if (!data.email.trim()) throw new Error("กรุณากรอกอีเมล");
+    if (!data.roleId) throw new Error("กรุณาเลือกบทบาท");
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    // Check current user has permission
+    const membership = await ensureMembership(context.userId, tenantId);
+    const role = await sql<{ permissions: string }>`
+      select permissions::text from dcm_roles where id = ${membership.roleId}`;
+    const perms = JSON.parse(role[0]?.permissions ?? "[]") as string[];
+    if (!perms.includes("manage_members")) throw new Error("ไม่มีสิทธิ์จัดการสมาชิก");
+    // Find user by email
+    const user = await sql<{ id: string; name: string | null; email: string | null }>`
+      select id, name, email from "user" where lower(email) = lower(${data.email.trim()})`;
+    if (!user[0]) throw new Error("ไม่พบผู้ใช้ที่มีอีเมลนี้ กรุณาให้ผู้ใช้สมัครสมาชิกก่อน");
+    const targetUserId = user[0].id;
+    if (targetUserId === context.userId) throw new Error("ไม่สามารถเพิ่มตัวเองได้");
+    // Check if already a member
+    const existing = await sql`
+      select id from dcm_memberships
+      where user_id = ${targetUserId} and tenant_id = ${tenantId}`;
+    if (existing[0]) throw new Error("ผู้ใช้นี้เป็นสมาชิกอยู่แล้ว");
+    const id = crypto.randomUUID();
+    await sql`
+      insert into dcm_memberships (id, user_id, tenant_id, role_id, invited_by, status)
+      values (${id}, ${targetUserId}, ${tenantId}, ${data.roleId}, ${context.userId}, ${"ACTIVE"})`;
+    await auditLog({
+      userId: context.userId, tenantId, action: "create", entity: "membership",
+      entityId: id, newData: { targetUserId, email: data.email, roleId: data.roleId },
+    });
+    return { id };
+  });
+
+export const updateMemberRole = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { membershipId: string; roleId: string }) => d)
+  .handler(async ({ context, data }) => {
+    if (!data.roleId) throw new Error("กรุณาเลือกบทบาท");
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const membership = await ensureMembership(context.userId, tenantId);
+    const role = await sql<{ permissions: string }>`
+      select permissions::text from dcm_roles where id = ${membership.roleId}`;
+    const perms = JSON.parse(role[0]?.permissions ?? "[]") as string[];
+    if (!perms.includes("manage_members")) throw new Error("ไม่มีสิทธิ์จัดการสมาชิก");
+    // Cannot change own role
+    const target = await sql<{ user_id: string }>`
+      select user_id from dcm_memberships where id = ${data.membershipId} and tenant_id = ${tenantId}`;
+    if (!target[0]) throw new Error("ไม่พบสมาชิก");
+    if (target[0].user_id === context.userId) throw new Error("ไม่สามารถเปลี่ยนบทบาทตัวเองได้");
+    await sql`
+      update dcm_memberships set role_id = ${data.roleId}, updated_at = now()
+      where id = ${data.membershipId} and tenant_id = ${tenantId}`;
+    await auditLog({
+      userId: context.userId, tenantId, action: "update", entity: "membership",
+      entityId: data.membershipId, newData: { roleId: data.roleId },
+    });
+    return { ok: true };
+  });
+
+export const removeMember = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { membershipId: string }) => d)
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const membership = await ensureMembership(context.userId, tenantId);
+    const role = await sql<{ permissions: string }>`
+      select permissions::text from dcm_roles where id = ${membership.roleId}`;
+    const perms = JSON.parse(role[0]?.permissions ?? "[]") as string[];
+    if (!perms.includes("manage_members")) throw new Error("ไม่มีสิทธิ์จัดการสมาชิก");
+    const target = await sql<{ user_id: string; role_name: string }>`
+      select m.user_id, r.name as role_name
+      from dcm_memberships m join dcm_roles r on r.id = m.role_id
+      where m.id = ${data.membershipId} and m.tenant_id = ${tenantId}`;
+    if (!target[0]) throw new Error("ไม่พบสมาชิก");
+    if (target[0].user_id === context.userId) throw new Error("ไม่สามารถลบตัวเองได้");
+    if (target[0].role_name === "Owner") throw new Error("ไม่สามารถลบเจ้าขององค์กรได้");
+    await sql`
+      update dcm_memberships set status = 'DISABLED', updated_at = now()
+      where id = ${data.membershipId} and tenant_id = ${tenantId}`;
+    await auditLog({
+      userId: context.userId, tenantId, action: "update", entity: "membership",
+      entityId: data.membershipId, newData: { status: "DISABLED" },
+    });
+    return { ok: true };
+  });

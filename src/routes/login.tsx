@@ -157,7 +157,17 @@ function EmailPasswordForm() {
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="password">รหัสผ่าน</Label>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="password">รหัสผ่าน</Label>
+          {!isSignUp && (
+            <Link
+              to="/forgot-password"
+              className="text-xs text-primary hover:underline"
+            >
+              ลืมรหัสผ่าน?
+            </Link>
+          )}
+        </div>
         <Input
           id="password"
           type="password"

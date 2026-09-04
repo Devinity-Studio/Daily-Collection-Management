@@ -28,6 +28,7 @@ const NAV = [
   { to: "/reports", label: "รายงาน", icon: BarChart3 },
   { to: "/subscription", label: "สมาชิก", icon: CreditCard },
   { to: "/tenants", label: "องค์กร", icon: Building2 },
+  { to: "/members", label: "สิทธิ์", icon: Users },
   { to: "/audit", label: "ประวัติ", icon: Clock },
 ] as const;
 
