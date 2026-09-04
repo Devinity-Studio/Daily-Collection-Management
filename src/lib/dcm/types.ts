@@ -75,6 +75,73 @@ export type Payment = {
   createdAt: string;
 };
 
+export type AccountType = "PERSONAL_LOAN" | "BUSINESS_LOAN" | "CREDIT_LINE" | "OTHER";
+export type AccountStatus =
+  | "ACTIVE"
+  | "OVERDUE"
+  | "DELINQUENT"
+  | "PAID_OFF"
+  | "WRITTEN_OFF"
+  | "CLOSED";
+export type Classification =
+  | "NORMAL"
+  | "SPECIAL_MENTION"
+  | "SUB_STANDARD"
+  | "DOUBTFUL"
+  | "LOSS";
+export type InstallmentStatus =
+  | "PENDING"
+  | "CURRENT"
+  | "PARTIAL"
+  | "PAID"
+  | "OVERDUE"
+  | "WAIVED";
+
+export type Account = {
+  id: string;
+  customerId: string;
+  customerName: string;
+  accountNumber: string;
+  accountType: AccountType;
+  originalAmount: number;
+  interestRate: number;
+  currency: string;
+  termMonths: number | null;
+  paymentFrequency: string;
+  disbursementDate: string;
+  firstDueDate: string | null;
+  maturityDate: string | null;
+  outstandingBalance: number;
+  totalPaid: number;
+  status: AccountStatus;
+  classification: Classification | null;
+  notes: string | null;
+  createdAt: string;
+};
+
+export type Installment = {
+  id: string;
+  accountId: string;
+  installmentNumber: number;
+  principalAmount: number;
+  interestAmount: number;
+  totalAmount: number;
+  dueDate: string;
+  paidDate: string | null;
+  amountPaid: number;
+  penaltyAmount: number;
+  status: InstallmentStatus;
+};
+
+export type AccountSummary = {
+  totalAccounts: number;
+  activeAccounts: number;
+  overdueAccounts: number;
+  totalOutstanding: number;
+  totalOriginal: number;
+  totalPaid: number;
+};
+
 export type MethodBreakdown = { method: string; amount: number; count: number };
 
 export type DashboardData = {

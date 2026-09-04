@@ -3,6 +3,8 @@ import {
   BarChart3,
   Building2,
   CreditCard,
+  Clock,
+  Landmark,
   LayoutDashboard,
   Menu,
   Receipt,
@@ -22,9 +24,11 @@ const NAV = [
   { to: "/", label: "แดชบอร์ด", icon: LayoutDashboard },
   { to: "/customers", label: "ลูกค้า", icon: Users },
   { to: "/collections", label: "เก็บเงิน", icon: Wallet },
+  { to: "/accounts", label: "เงินกู้", icon: Landmark },
   { to: "/reports", label: "รายงาน", icon: BarChart3 },
   { to: "/subscription", label: "สมาชิก", icon: CreditCard },
   { to: "/tenants", label: "องค์กร", icon: Building2 },
+  { to: "/audit", label: "ประวัติ", icon: Clock },
 ] as const;
 
 export function Protected({

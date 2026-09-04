@@ -2,11 +2,18 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import { todayISO } from "@/lib/format";
+import { auditLog, type AuditAction, type AuditEntity } from "./audit";
 import type {
+  Account,
+  AccountSummary,
+  AccountType,
   Collection,
   Customer,
+  Classification,
   DailyReport,
   DashboardData,
+  Installment,
+  InstallmentStatus,
   Invoice,
   MethodBreakdown,
   MonthlyReport,
@@ -256,6 +263,10 @@ export const switchTenant = createServerFn({ method: "POST" })
       insert into dcm_profiles (user_id, active_tenant_id)
       values (${context.userId}, ${data.tenantId})
       on conflict (user_id) do update set active_tenant_id = excluded.active_tenant_id`;
+    await auditLog({
+      userId: context.userId, tenantId: data.tenantId, action: "tenant_switched", entity: "profile",
+      newData: { activeTenantId: data.tenantId },
+    });
     return { ok: true };
   });
 
@@ -280,6 +291,14 @@ export const createTenant = createServerFn({ method: "POST" })
       insert into dcm_profiles (user_id, active_tenant_id)
       values (${context.userId}, ${id})
       on conflict (user_id) do update set active_tenant_id = excluded.active_tenant_id`;
+    await auditLog({
+      userId: context.userId,
+      tenantId: id,
+      action: "tenant_created",
+      entity: "tenant",
+      entityId: id,
+      newData: { name, code, contactName: data.contactName, phone: data.phone },
+    });
     return { id };
   });
 
@@ -335,6 +354,10 @@ export const saveCustomer = createServerFn({ method: "POST" })
             phone = ${data.phone?.trim() || null},
             address = ${data.address?.trim() || null}
         where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+      await auditLog({
+        userId: context.userId, tenantId, action: "update", entity: "customer",
+        entityId: data.id, newData: { name, customerCode: data.customerCode, phone: data.phone, address: data.address },
+      });
       return { id: data.id };
     }
     const id = crypto.randomUUID();
@@ -345,6 +368,10 @@ export const saveCustomer = createServerFn({ method: "POST" })
         ${data.customerCode?.trim() || null}, ${name},
         ${data.phone?.trim() || null}, ${data.address?.trim() || null}, ${"ACTIVE"}
       )`;
+    await auditLog({
+      userId: context.userId, tenantId, action: "create", entity: "customer",
+      entityId: id, newData: { name, customerCode: data.customerCode, phone: data.phone, address: data.address },
+    });
     return { id };
   });
 
@@ -357,6 +384,10 @@ export const disableCustomer = createServerFn({ method: "POST" })
     await sql`
       update dcm_customers set status = 'DISABLED'
       where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+    await auditLog({
+      userId: context.userId, tenantId, action: "update", entity: "customer",
+      entityId: data.id, newData: { status: "DISABLED" },
+    });
     return { ok: true };
   });
 
@@ -430,6 +461,10 @@ export const saveCollection = createServerFn({ method: "POST" })
             collector_name = ${data.collectorName?.trim() || null},
             note = ${data.note?.trim() || null}
         where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+      await auditLog({
+        userId: context.userId, tenantId, action: "update", entity: "collection",
+        entityId: data.id, newData: { customerId: data.customerId, collectionDate: data.collectionDate, amount: data.amount, paymentMethod: data.paymentMethod },
+      });
       return { id: data.id };
     }
     const id = crypto.randomUUID();
@@ -440,6 +475,10 @@ export const saveCollection = createServerFn({ method: "POST" })
         ${id}, ${context.userId}, ${tenantId}, ${data.customerId}, ${data.collectionDate},
         ${data.amount}, ${data.paymentMethod}, ${data.collectorName?.trim() || null}, ${data.note?.trim() || null}
       )`;
+    await auditLog({
+      userId: context.userId, tenantId, action: "create", entity: "collection",
+      entityId: id, newData: { customerId: data.customerId, collectionDate: data.collectionDate, amount: data.amount, paymentMethod: data.paymentMethod },
+    });
     return { id };
   });
 
@@ -449,9 +488,19 @@ export const deleteCollection = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const { tenantId } = await ensureWorkspace(context.userId);
+    // Fetch old data before delete for audit trail
+    const oldRow = await sql<Record<string, unknown>>`
+      select id, customer_id, collection_date, amount, payment_method
+      from dcm_collections where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
     await sql`
       delete from dcm_collections
       where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+    if (oldRow[0]) {
+      await auditLog({
+        userId: context.userId, tenantId, action: "delete", entity: "collection",
+        entityId: data.id, oldData: oldRow[0] as Record<string, unknown>,
+      });
+    }
     return { ok: true };
   });
 
@@ -636,6 +685,10 @@ export const submitPayment = createServerFn({ method: "POST" })
     await sql`
       update dcm_subscriptions set status = 'PENDING_PAYMENT'
       where id = ${String(sub[0].id)} and user_id = ${context.userId} and status = 'EXPIRED'`;
+    await auditLog({
+      userId: context.userId, tenantId, action: "payment_recorded", entity: "payment",
+      entityId: payId, newData: { amount, paymentMethod: data.paymentMethod, paymentReference: ref, invoiceId: invoice[0]!.id },
+    });
     return { id: payId };
   });
 
@@ -654,6 +707,10 @@ export const confirmPayment = createServerFn({ method: "POST" })
       await sql`
         update dcm_payments set status = 'REJECTED'
         where id = ${data.paymentId} and user_id = ${context.userId}`;
+      await auditLog({
+        userId: context.userId, tenantId, action: "payment_rejected", entity: "payment",
+        entityId: data.paymentId, oldData: { status: "PENDING" }, newData: { status: "REJECTED" },
+      });
       return { ok: true };
     }
     const today = todayISO();
@@ -682,8 +739,357 @@ export const confirmPayment = createServerFn({ method: "POST" })
         update dcm_subscriptions
         set start_date = ${start}, expiry_date = ${expiry}, status = 'ACTIVE'
         where id = ${sub[0].id} and user_id = ${context.userId}`;
+      await auditLog({
+        userId: context.userId, tenantId, action: "subscription_extended", entity: "subscription",
+        entityId: sub[0].id, newData: { startDate: start, expiryDate: expiry, status: "ACTIVE" },
+      });
     }
+    await auditLog({
+      userId: context.userId, tenantId, action: "payment_confirmed", entity: "payment",
+      entityId: data.paymentId, oldData: { status: "PENDING" }, newData: { status: "CONFIRMED" },
+    });
     return { ok: true };
   });
 
 export type MethodBreakdownPublic = MethodBreakdown;
+
+// ── Account / Loan helpers ───────────────────────────────────────
+
+function mapAccount(row: Record<string, unknown>, customerName: string): Account {
+  return {
+    id: String(row.id),
+    customerId: String(row.customer_id),
+    customerName,
+    accountNumber: String(row.account_number),
+    accountType: row.account_type as Account["accountType"],
+    originalAmount: n(row.original_amount),
+    interestRate: n(row.interest_rate),
+    currency: String(row.currency ?? "THB"),
+    termMonths: row.term_months != null ? Number(row.term_months) : null,
+    paymentFrequency: String(row.payment_frequency ?? "MONTHLY"),
+    disbursementDate: String(row.disbursement_date),
+    firstDueDate: (row.first_due_date as string) ?? null,
+    maturityDate: (row.maturity_date as string) ?? null,
+    outstandingBalance: n(row.outstanding_balance),
+    totalPaid: n(row.total_paid),
+    status: row.status as Account["status"],
+    classification: (row.classification as Classification) ?? null,
+    notes: (row.notes as string) ?? null,
+    createdAt: String(row.created_at),
+  };
+}
+
+function mapInstallment(row: Record<string, unknown>): Installment {
+  return {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    installmentNumber: Number(row.installment_number),
+    principalAmount: n(row.principal_amount),
+    interestAmount: n(row.interest_amount),
+    totalAmount: n(row.total_amount),
+    dueDate: String(row.due_date),
+    paidDate: (row.paid_date as string) ?? null,
+    amountPaid: n(row.amount_paid),
+    penaltyAmount: n(row.penalty_amount),
+    status: row.status as InstallmentStatus,
+  };
+}
+
+function nextAccountNumber(): string {
+  const y = new Date().getFullYear();
+  const seq = String(Date.now()).slice(-6);
+  return `ACC-${y}-${seq}`;
+}
+
+/** Generate installment schedule based on term and frequency. */
+function generateInstallments(
+  accountId: string,
+  userId: string,
+  tenantId: string,
+  totalAmount: number,
+  termMonths: number,
+  firstDueDate: string,
+): Array<{
+  id: string;
+  userId: string;
+  tenantId: string;
+  accountId: string;
+  installmentNumber: number;
+  principalAmount: number;
+  interestAmount: number;
+  totalAmount: number;
+  dueDate: string;
+  status: string;
+}> {
+  const installments = [];
+  const monthlyPrincipal = totalAmount / termMonths;
+  const today = todayISO();
+
+  for (let i = 1; i <= termMonths; i++) {
+    const due = new Date(`${firstDueDate}T00:00:00Z`);
+    due.setUTCMonth(due.getUTCMonth() + (i - 1));
+    const dueDate = due.toISOString().slice(0, 10);
+    // Auto-mark installments whose due date has passed
+    const status = dueDate < today ? "OVERDUE" : "PENDING";
+    installments.push({
+      id: crypto.randomUUID(),
+      userId,
+      tenantId,
+      accountId,
+      installmentNumber: i,
+      principalAmount: Math.round(monthlyPrincipal * 100) / 100,
+      interestAmount: 0,
+      totalAmount: Math.round(monthlyPrincipal * 100) / 100,
+      dueDate,
+      status,
+    });
+  }
+  return installments;
+}
+
+// ── Account server functions ─────────────────────────────────────
+
+export const listAccounts = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<Account[]> => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const rows = await sql<Record<string, unknown>>`
+      select a.*, cu.name as customer_name
+      from dcm_accounts a
+      join dcm_customers cu on cu.id = a.customer_id
+      where a.user_id = ${context.userId} and a.tenant_id = ${tenantId}
+      order by a.created_at desc`;
+    return rows.map((r) => mapAccount(r, String(r.customer_name)));
+  });
+
+export const getAccountSummary = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<AccountSummary> => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const rows = await sql<Record<string, unknown>>`
+      select
+        count(*)::int as total,
+        count(*) filter (where status = 'ACTIVE')::int as active,
+        count(*) filter (where status in ('OVERDUE','DELINQUENT'))::int as overdue,
+        coalesce(sum(original_amount),0)::text as original,
+        coalesce(sum(outstanding_balance),0)::text as outstanding,
+        coalesce(sum(total_paid),0)::text as paid
+      from dcm_accounts
+      where user_id = ${context.userId} and tenant_id = ${tenantId}`;
+    const r = rows[0]!;
+    return {
+      totalAccounts: Number(r.total),
+      activeAccounts: Number(r.active),
+      overdueAccounts: Number(r.overdue),
+      totalOutstanding: n(r.outstanding ?? r.original),
+      totalOriginal: n(r.original),
+      totalPaid: n(r.paid),
+    };
+  });
+
+export const getAccountInstallments = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((d: { accountId: string }) => d)
+  .handler(async ({ context, data }): Promise<Installment[]> => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    const rows = await sql<Record<string, unknown>>`
+      select * from dcm_installments
+      where user_id = ${context.userId} and tenant_id = ${tenantId} and account_id = ${data.accountId}
+      order by installment_number`;
+    return rows.map(mapInstallment);
+  });
+
+export const saveAccount = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    (d: {
+      id?: string;
+      customerId: string;
+      accountType?: AccountType;
+      originalAmount: number;
+      interestRate?: number;
+      termMonths?: number;
+      paymentFrequency?: string;
+      disbursementDate: string;
+      firstDueDate?: string;
+      notes?: string;
+    }) => d,
+  )
+  .handler(async ({ context, data }) => {
+    if (!data.customerId) throw new Error("กรุณาเลือกลูกค้า");
+    if (!Number.isFinite(data.originalAmount) || data.originalAmount <= 0)
+      throw new Error("จำนวนเงินต้นต้องมากกว่า 0");
+    if (!data.termMonths || data.termMonths < 1)
+      throw new Error("กำหนดระยะเวลาผ่อนชำระอย่างน้อย 1 เดือน");
+
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+
+    // Verify customer exists
+    const cust = await sql`
+      select id from dcm_customers
+      where id = ${data.customerId} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+    if (!cust[0]) throw new Error("ไม่พบลูกค้า");
+
+    const today = todayISO();
+    const firstDue = data.firstDueDate || today;
+
+    if (data.id) {
+      // Update existing account
+      await sql`
+        update dcm_accounts
+        set account_type = ${data.accountType ?? "PERSONAL_LOAN"},
+            interest_rate = ${data.interestRate ?? 0},
+            term_months = ${data.termMonths},
+            payment_frequency = ${data.paymentFrequency ?? "MONTHLY"},
+            first_due_date = ${firstDue},
+            notes = ${data.notes?.trim() || null},
+            updated_at = now()
+        where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+      await auditLog({
+        userId: context.userId, tenantId, action: "update", entity: "account",
+        entityId: data.id, newData: { accountType: data.accountType, interestRate: data.interestRate, termMonths: data.termMonths },
+      });
+      return { id: data.id };
+    }
+
+    // Create new account
+    const accountId = crypto.randomUUID();
+    const accountNumber = nextAccountNumber();
+    await sql`
+      insert into dcm_accounts
+        (id, user_id, tenant_id, customer_id, account_number, account_type,
+         original_amount, interest_rate, currency, term_months, payment_frequency,
+         disbursement_date, first_due_date, outstanding_balance, total_paid, status)
+      values (
+        ${accountId}, ${context.userId}, ${tenantId}, ${data.customerId},
+        ${accountNumber}, ${data.accountType ?? "PERSONAL_LOAN"},
+        ${data.originalAmount}, ${data.interestRate ?? 0}, ${"THB"}, ${data.termMonths},
+        ${data.paymentFrequency ?? "MONTHLY"}, ${data.disbursementDate}, ${firstDue},
+        ${data.originalAmount}, ${0}, ${"ACTIVE"}
+      )`;
+
+    // Generate installment schedule
+    const installments = generateInstallments(
+      accountId, context.userId, tenantId,
+      data.originalAmount, data.termMonths, firstDue,
+    );      for (const inst of installments) {
+        await sql`
+          insert into dcm_installments
+            (id, user_id, tenant_id, account_id, installment_number,
+             principal_amount, interest_amount, total_amount, due_date, status)
+          values (
+            ${inst.id}, ${inst.userId}, ${inst.tenantId}, ${inst.accountId},
+            ${inst.installmentNumber}, ${inst.principalAmount}, ${inst.interestAmount},
+          ${inst.totalAmount}, ${inst.dueDate}, ${inst.status}
+        )`;
+    }
+
+    await auditLog({
+      userId: context.userId, tenantId, action: "create", entity: "account",
+      entityId: accountId, newData: { accountNumber, accountType: data.accountType, originalAmount: data.originalAmount, termMonths: data.termMonths, customerId: data.customerId },
+    });
+    return { id: accountId };
+  });
+
+export const deleteAccount = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { id: string }) => d)
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+    // Check if any installments are paid
+    const paid = await sql<{ n: number }>`
+      select count(*)::int as n from dcm_installments
+      where account_id = ${data.id} and user_id = ${context.userId}
+        and status in ('PAID', 'PARTIAL')`;
+    if ((paid[0]?.n ?? 0) > 0) {
+      throw new Error("ไม่สามารถลบบัญชีที่มีการชำระแล้วได้");
+    }
+    // Fetch old data before delete for audit trail
+    const oldRow = await sql<Record<string, unknown>>`
+      select id, account_number, account_type, original_amount, outstanding_balance, customer_id
+      from dcm_accounts where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+    await sql`
+      delete from dcm_accounts
+      where id = ${data.id} and user_id = ${context.userId} and tenant_id = ${tenantId}`;
+    if (oldRow[0]) {
+      await auditLog({
+        userId: context.userId, tenantId, action: "delete", entity: "account",
+        entityId: data.id, oldData: oldRow[0] as Record<string, unknown>,
+      });
+    }
+    return { ok: true };
+  });
+
+export const recordInstallmentPayment = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    (d: {
+      installmentId: string;
+      amount: number;
+      paymentMethod?: string;
+      note?: string;
+    }) => d,
+  )
+  .handler(async ({ context, data }) => {
+    if (!Number.isFinite(data.amount) || data.amount <= 0)
+      throw new Error("จำนวนเงินต้องมากกว่า 0");
+
+    const sql = await getSql();
+    const { tenantId } = await ensureWorkspace(context.userId);
+
+    // Verify installment belongs to user
+    const rows = await sql<Record<string, unknown>>`
+      select i.*, a.id as account_id, a.outstanding_balance, a.original_amount, a.total_paid as acc_total_paid
+      from dcm_installments i
+      join dcm_accounts a on a.id = i.account_id
+      where i.id = ${data.installmentId} and i.user_id = ${context.userId} and i.tenant_id = ${tenantId}`;
+    if (!rows[0]) throw new Error("ไม่พบรายการผ่อนชำระ");
+    const inst = rows[0];
+    const instStatus = String(inst.status);
+    if (instStatus === "PAID") throw new Error("รายการนี้ชำระครบแล้ว");
+    if (instStatus === "WAIVED") throw new Error("รายการนี้ได้รับการยกเว้นแล้ว");
+
+    const today = todayISO();
+    const currentPaid = n(inst.amount_paid);
+    const newPaid = currentPaid + data.amount;
+    const instTotal = n(inst.total_amount);
+    const newStatus: InstallmentStatus = newPaid >= instTotal ? "PAID" : "PARTIAL";
+
+    // Update installment
+    await sql`
+      update dcm_installments
+      set amount_paid = ${newPaid},
+          paid_date = ${newPaid >= instTotal ? today : null},
+          status = ${newStatus},
+          updated_at = now()
+      where id = ${data.installmentId} and user_id = ${context.userId}`;
+
+    // Update account balance
+    const account = await sql<{ outstanding_balance: string; total_paid: string }>`
+      select outstanding_balance::text, total_paid::text from dcm_accounts
+      where id = ${String(inst.account_id)} and user_id = ${context.userId}`;
+    if (account[0]) {
+      const newOutstanding = Math.max(0, n(account[0].outstanding_balance) - data.amount);
+      const newTotalPaid = n(account[0].total_paid) + data.amount;
+      const accountStatus = newOutstanding <= 0 ? "PAID_OFF" : "ACTIVE";
+      await sql`
+        update dcm_accounts
+        set outstanding_balance = ${newOutstanding},
+            total_paid = ${newTotalPaid},
+            status = ${accountStatus},
+            updated_at = now()
+        where id = ${String(inst.account_id)} and user_id = ${context.userId}`;
+    }
+
+    await auditLog({
+      userId: context.userId, tenantId, action: "payment_recorded", entity: "installment",
+      entityId: data.installmentId,
+      newData: { amount: data.amount, paymentMethod: data.paymentMethod, newStatus, accountId: String(inst.account_id) },
+    });
+    return { ok: true, newStatus };
+  });

@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Banknote,
   CalendarDays,
+  Landmark,
   QrCode,
   Receipt,
   ShieldCheck,
@@ -25,7 +26,7 @@ import { PaywallBanner } from "@/components/paywall";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { GROK_PROVIDERS, authEnabled, signIn } from "@/lib/auth/client";
-import { getDashboard, switchTenant } from "@/lib/dcm/server";
+import { getAccountSummary, getDashboard, switchTenant } from "@/lib/dcm/server";
 import { formatBaht, formatDateTh, METHOD_LABEL, STATUS_LABEL } from "@/lib/format";
 import { Select } from "@/components/ui/select";
 
@@ -108,6 +109,7 @@ function Landing() {
 function Dashboard() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["dashboard"], queryFn: () => getDashboard() });
+  const loanSummary = useQuery({ queryKey: ["account-summary"], queryFn: () => getAccountSummary() });
   const switchMut = useMutation({
     mutationFn: (tenantId: string) => switchTenant({ data: { tenantId } }),
     onSuccess: () => {
@@ -254,6 +256,47 @@ function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {loanSummary.data && loanSummary.data.totalAccounts > 0 ? (
+        <div className="mt-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-muted-foreground">สรุปเงินกู้</h2>
+            <Link to="/accounts" className="text-sm text-primary hover:underline">
+              ดูทั้งหมด
+            </Link>
+          </div>
+          <div className="mt-3 grid gap-4 sm:grid-cols-3">
+            <Card className="rounded-xl">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <Landmark className="size-4 text-primary" />
+                  <p className="text-sm text-muted-foreground">บัญชีทั้งหมด</p>
+                </div>
+                <p className="mt-2 font-mono text-2xl tabular-nums">
+                  {loanSummary.data.totalAccounts}
+                  <span className="ml-1 text-sm text-muted-foreground">บัญชี</span>
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="rounded-xl">
+              <CardContent className="p-4">
+                <p className="text-sm text-muted-foreground">ค้างชำระรวม</p>
+                <p className="mt-2 font-mono text-2xl tabular-nums text-destructive">
+                  {formatBaht(loanSummary.data.totalOutstanding)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="rounded-xl">
+              <CardContent className="p-4">
+                <p className="text-sm text-muted-foreground">ชำระแล้วรวม</p>
+                <p className="mt-2 font-mono text-2xl tabular-nums text-primary">
+                  {formatBaht(loanSummary.data.totalPaid)}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-6 flex flex-wrap gap-3 text-sm text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
