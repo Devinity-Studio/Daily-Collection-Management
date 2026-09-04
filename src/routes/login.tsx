@@ -1,15 +1,18 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { Receipt } from "lucide-react";
-import { GROK_PROVIDERS, authEnabled, signIn } from "@/lib/auth/client";
+import { GROK_PROVIDERS, authClient, authEnabled } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { Navigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/login")({ component: Login });
 
 function Login() {
   const { user, isPending } = useCurrentUserState();
+
   if (isPending) {
     return (
       <div className="grid min-h-svh place-items-center bg-background">
@@ -29,25 +32,35 @@ function Login() {
             </div>
             <div>
               <p className="text-lg font-semibold">เงินวัน</p>
-              <p className="text-sm text-muted-foreground">เข้าสู่ระบบเพื่อจัดการยอดเก็บเงิน</p>
+              <p className="text-sm text-muted-foreground">
+                เข้าสู่ระบบเพื่อจัดการยอดเก็บเงิน
+              </p>
             </div>
           </div>
-          {authEnabled ? (
+
+          {authEnabled && (
             <div className="space-y-2">
               {GROK_PROVIDERS.map((p) => (
                 <Button
                   key={p.providerId}
                   type="button"
+                  variant="outline"
                   className="w-full"
-                  onClick={() => signIn(p.providerId, { callbackURL: "/" })}
+                  onClick={() =>
+                    authClient.signIn.oauth2({
+                      providerId: p.providerId,
+                      callbackURL: "/",
+                    })
+                  }
                 >
                   เข้าสู่ระบบด้วย {p.label}
                 </Button>
               ))}
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">ระบบเข้าสู่ระบบยังไม่เปิดใช้งาน</p>
           )}
+
+          <EmailPasswordForm />
+
           <p className="text-center text-sm text-muted-foreground">
             <Link to="/" className="underline-offset-4 hover:underline">
               กลับหน้าแรก
@@ -56,5 +69,149 @@ function Login() {
         </CardContent>
       </Card>
     </main>
+  );
+}
+
+function EmailPasswordForm() {
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    try {
+      if (isSignUp) {
+        const { error: signUpError } = await authClient.signUp.email({
+          email,
+          password,
+          name,
+        });
+        if (signUpError) {
+          setError(signUpError.message ?? "สมัครสมาชิกไม่สำเร็จ");
+          return;
+        }
+        // Auto sign-in after sign-up
+        const { error: signInError } = await authClient.signIn.email({
+          email,
+          password,
+        });
+        if (signInError) {
+          setError(signInError.message ?? "เข้าสู่ระบบไม่สำเร็จ");
+          return;
+        }
+        window.location.href = "/";
+      } else {
+        const { error: signInError } = await authClient.signIn.email({
+          email,
+          password,
+        });
+        if (signInError) {
+          setError(signInError.message ?? "อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+          return;
+        }
+        window.location.href = "/";
+      }
+    } catch {
+      setError("เกิดข้อผิดพลาด ลองใหม่อีกครั้ง");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3 border-t pt-5">
+      <p className="text-sm font-medium">
+        {isSignUp ? "สมัครสมาชิกใหม่" : "เข้าสู่ระบบด้วยอีเมล"}
+      </p>
+
+      {isSignUp && (
+        <div className="space-y-1.5">
+          <Label htmlFor="name">ชื่อ</Label>
+          <Input
+            id="name"
+            type="text"
+            placeholder="ชื่อของคุณ"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        <Label htmlFor="email">อีเมล</Label>
+        <Input
+          id="email"
+          type="email"
+          placeholder="you@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="password">รหัสผ่าน</Label>
+        <Input
+          id="password"
+          type="password"
+          placeholder="••••••••"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          minLength={8}
+        />
+      </div>
+
+      {error && (
+        <p className="text-sm text-destructive">{error}</p>
+      )}
+
+      <Button type="submit" className="w-full" disabled={loading}>
+        {loading
+          ? "กำลังดำเนินการ..."
+          : isSignUp
+            ? "สมัครสมาชิก"
+            : "เข้าสู่ระบบ"}
+      </Button>
+
+      <p className="text-center text-sm text-muted-foreground">
+        {isSignUp ? (
+          <>
+            มีบัญชีอยู่แล้ว?{" "}
+            <button
+              type="button"
+              className="underline underline-offset-4 hover:text-foreground"
+              onClick={() => {
+                setIsSignUp(false);
+                setError("");
+              }}
+            >
+              เข้าสู่ระบบ
+            </button>
+          </>
+        ) : (
+          <>
+            ยังไม่มีบัญชี?{" "}
+            <button
+              type="button"
+              className="underline underline-offset-4 hover:text-foreground"
+              onClick={() => {
+                setIsSignUp(true);
+                setError("");
+              }}
+            >
+              สมัครสมาชิก
+            </button>
+          </>
+        )}
+      </p>
+    </form>
   );
 }
