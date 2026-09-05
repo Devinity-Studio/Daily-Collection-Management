@@ -15,8 +15,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import dns from "node:dns";
 import pg from "pg";
 import { pendingMigrations } from "./migration-plan.mjs";
+
+dns.setDefaultResultOrder("ipv4first");
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {

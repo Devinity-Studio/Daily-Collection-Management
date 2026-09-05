@@ -1,4 +1,7 @@
+import dns from "node:dns";
 import { pendingMigrations } from "../../scripts/migration-plan.mjs";
+
+dns.setDefaultResultOrder("ipv4first");
 
 /** Which database backend is active. */
 export type DbSource = "neon" | "pglite";

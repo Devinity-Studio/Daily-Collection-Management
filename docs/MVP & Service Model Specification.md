@@ -2,10 +2,41 @@
 
 ## MVP & Service Model Specification
 
-**Version:** 1.1
+**Version:** 1.2
 **Date:** 3 September 2026
-**สถานะ:** Draft สำหรับพัฒนา MVP
+**สถานะ:** ✅ Deployed & Operational
 **Updated:** อัปเดตตาม Architecture Review v1.0
+
+---
+
+## 🚀 Deployment Status
+
+**Production URL:** https://daily-collection-management.vercel.app/
+
+### Deployed Features (v1.2)
+- ✅ Email/Password Authentication (Better Auth)
+- ✅ Multi-Tenant with Tenant Isolation (user_id + tenant_id filtering)
+- ✅ RBAC Roles & Memberships (Owner, Admin, Manager, Collector, Viewer)
+- ✅ Customer Management
+- ✅ Daily Collection Recording
+- ✅ Accounts/Loans with Installment Tracking
+- ✅ Dashboard with Daily/Monthly Reports
+- ✅ Subscription Management with Paywall
+- ✅ Billing & Payment Confirmation
+- ✅ Audit Logging
+- ✅ Demo Data Seeding
+
+### Infrastructure
+- **Frontend:** TanStack Start + React 19 + Tailwind v4
+- **Backend:** Nitro serverless functions (Vercel)
+- **Database:** Supabase (PostgreSQL via Connection Pooler)
+- **Auth:** Better Auth with email/password
+- **ORM:** Kysely
+
+### Known Issues / Limitations
+- ⚠️ Google OAuth not yet configured (using email/password only)
+- ⚠️ Row-Level Security (RLS) not enabled at database level — tenant isolation enforced at application layer only
+- ⚠️ No automatic payment verification (manual confirmation by Admin)
 
 ---
 
