@@ -73,6 +73,9 @@ function Landing() {
           และต่ออายุการใช้งานแบบรายเดือน
         </p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <Button asChild variant="outline">
+            <Link to="/playground">ทดลองใช้ (Playground)</Link>
+          </Button>
           {authEnabled
             ? GROK_PROVIDERS.slice(0, 2).map((p) => (
                 <Button key={p.providerId} onClick={() => signIn(p.providerId, { callbackURL: "/" })}>

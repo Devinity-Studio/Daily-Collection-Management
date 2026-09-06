@@ -1,16 +1,15 @@
 #!/bin/sh
-# Idempotent startup script
+# Idempotent startup script for sandbox environment
 set -e
 
 PORT=8080
-PROJECT_DIR="/run/media/bombuntu/HDD STORAGE 1/DevProject/Daily Collection Management"
 
 if curl -sf "http://127.0.0.1:${PORT}/" > /dev/null 2>&1; then
   echo "App already running on port ${PORT}"
   exit 0
 fi
 
-cd "$PROJECT_DIR"
+cd /workspace
 NODE_OPTIONS="--max-old-space-size=4096" nohup npm run dev > /tmp/dcm-dev.log 2>&1 &
 echo "Starting dev server on port ${PORT}..."
 
