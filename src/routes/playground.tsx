@@ -182,12 +182,24 @@ function PlaygroundDashboard({ onNavigate }: { onNavigate: (tab: "dashboard" | "
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (q.isLoading || !q.data) {
+  if (q.isLoading) {
     return (
       <div className="space-y-4">
         <div className="h-8 w-48 animate-pulse rounded bg-muted" />
         <div className="grid gap-4 sm:grid-cols-4">
           {[1, 2, 3, 4].map((i) => <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (q.error || !q.data) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6 text-center">
+          <p className="text-destructive">เกิดข้อผิดพลาดในการโหลดข้อมูล</p>
+          <p className="mt-1 text-sm text-muted-foreground">{q.error?.message}</p>
+          <Button className="mt-3" onClick={() => void q.refetch()}>ลองใหม่</Button>
         </div>
       </div>
     );
@@ -354,6 +366,16 @@ function PlaygroundCustomers() {
   });
   const [open, setOpen] = useState(false);
 
+  if (q.error) {
+    return (
+      <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6 text-center">
+        <p className="text-destructive">เกิดข้อผิดพลาด</p>
+        <p className="mt-1 text-sm text-muted-foreground">{q.error.message}</p>
+        <Button className="mt-3" onClick={() => void q.refetch()}>ลองใหม่</Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -449,6 +471,16 @@ function PlaygroundAccounts() {
   });
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  if (q.error) {
+    return (
+      <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6 text-center">
+        <p className="text-destructive">เกิดข้อผิดพลาด</p>
+        <p className="mt-1 text-sm text-muted-foreground">{q.error.message}</p>
+        <Button className="mt-3" onClick={() => void q.refetch()}>ลองใหม่</Button>
+      </div>
+    );
+  }
 
   const selectedAccount = (q.data ?? []).find((a) => a.id === selectedId);
 
@@ -564,6 +596,35 @@ function AccountDetail({ account: acc, onBack }: { account: { id: string; custom
   });
   const [payOpen, setPayOpen] = useState(false);
   const [selectedInst, setSelectedInst] = useState<{ id: string; installmentNumber: number; totalAmount: number; amountPaid: number } | null>(null);
+
+  if (installments.isLoading) {
+    return (
+      <div className="space-y-4">
+        <button onClick={onBack} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="size-4" /> กลับ
+        </button>
+        <div className="h-8 w-48 animate-pulse rounded bg-muted" />
+        <div className="grid gap-4 sm:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (installments.error) {
+    return (
+      <div className="space-y-4">
+        <button onClick={onBack} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="size-4" /> กลับ
+        </button>
+        <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6 text-center">
+          <p className="text-destructive">เกิดข้อผิดพลาด</p>
+          <p className="mt-1 text-sm text-muted-foreground">{installments.error.message}</p>
+          <Button className="mt-3" onClick={() => void installments.refetch()}>ลองใหม่</Button>
+        </div>
+      </div>
+    );
+  }
 
   const paidCount = (installments.data ?? []).filter((i) => i.status === "PAID").length;
   const totalCount = installments.data?.length ?? 0;
@@ -738,6 +799,27 @@ function PlaygroundTasks() {
   const [createOpen, setCreateOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  if (q.isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="h-8 w-48 animate-pulse rounded bg-muted" />
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-muted" />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (q.error) {
+    return (
+      <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6 text-center">
+        <p className="text-destructive">เกิดข้อผิดพลาด</p>
+        <p className="mt-1 text-sm text-muted-foreground">{q.error.message}</p>
+        <Button className="mt-3" onClick={() => void q.refetch()}>ลองใหม่</Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -889,6 +971,27 @@ function PlaygroundProblems() {
   const [createOpen, setCreateOpen] = useState(false);
   const [resolveOpen, setResolveOpen] = useState(false);
   const [selectedProb, setSelectedProb] = useState<{ id: string; customerName: string } | null>(null);
+
+  if (q.isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="h-8 w-48 animate-pulse rounded bg-muted" />
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (q.error) {
+    return (
+      <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6 text-center">
+        <p className="text-destructive">เกิดข้อผิดพลาด</p>
+        <p className="mt-1 text-sm text-muted-foreground">{q.error.message}</p>
+        <Button className="mt-3" onClick={() => void q.refetch()}>ลองใหม่</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

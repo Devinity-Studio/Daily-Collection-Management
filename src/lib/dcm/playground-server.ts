@@ -53,7 +53,7 @@ async function seedPlaygroundDemo(): Promise<void> {
   const tenantId = await ensurePlaygroundTenant();
 
   await sql`select 1`;
-  const existing = await sql`select id from dcm_customers where tenant_id = ${"playground-customer-001"} limit 1`;
+  const existing = await sql`select id from dcm_customers where id = ${"playground-customer-001"} and tenant_id = ${PLAYGROUND_TENANT_ID} limit 1`;
   if (existing.length > 0) return;
 
   const customers = [
