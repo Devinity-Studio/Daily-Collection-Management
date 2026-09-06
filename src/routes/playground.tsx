@@ -182,7 +182,7 @@ function PlaygroundDashboard({ onNavigate }: { onNavigate: (tab: "dashboard" | "
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (q.isLoading) {
+  if (q.isLoading || !q.data) {
     return (
       <div className="space-y-4">
         <div className="h-8 w-48 animate-pulse rounded bg-muted" />
@@ -193,7 +193,7 @@ function PlaygroundDashboard({ onNavigate }: { onNavigate: (tab: "dashboard" | "
     );
   }
 
-  const d = q.data as PlaygroundDashboard;
+  const d = q.data;
 
   return (
     <div className="space-y-6">
