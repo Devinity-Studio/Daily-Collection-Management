@@ -17,6 +17,7 @@ import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MembersRouteImport } from './routes/members'
+import { Route as PlaygroundRouteImport } from './routes/playground'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SubscriptionRouteImport } from './routes/subscription'
@@ -64,6 +65,11 @@ const MembersRoute = MembersRouteImport.update({
   path: '/members',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlaygroundRoute = PlaygroundRouteImport.update({
+  id: '/playground',
+  path: '/playground',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReportsRoute = ReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
@@ -104,6 +110,7 @@ export interface FileRoutesByFullPath {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/members': typeof MembersRoute
+  '/playground': typeof PlaygroundRoute
   '/reports': typeof ReportsRoute
   '/reset-password': typeof ResetPasswordRoute
   '/subscription': typeof SubscriptionRoute
@@ -120,6 +127,7 @@ export interface FileRoutesByTo {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/members': typeof MembersRoute
+  '/playground': typeof PlaygroundRoute
   '/reports': typeof ReportsRoute
   '/reset-password': typeof ResetPasswordRoute
   '/subscription': typeof SubscriptionRoute
@@ -137,6 +145,7 @@ export interface FileRoutesById {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/members': typeof MembersRoute
+  '/playground': typeof PlaygroundRoute
   '/reports': typeof ReportsRoute
   '/reset-password': typeof ResetPasswordRoute
   '/subscription': typeof SubscriptionRoute
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/members'
+    | '/playground'
     | '/reports'
     | '/reset-password'
     | '/subscription'
@@ -171,6 +181,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/members'
+    | '/playground'
     | '/reports'
     | '/reset-password'
     | '/subscription'
@@ -187,6 +198,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/members'
+    | '/playground'
     | '/reports'
     | '/reset-password'
     | '/subscription'
@@ -204,6 +216,7 @@ export interface RootRouteChildren {
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
   MembersRoute: typeof MembersRoute
+  PlaygroundRoute: typeof PlaygroundRoute
   ReportsRoute: typeof ReportsRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   SubscriptionRoute: typeof SubscriptionRoute
@@ -270,6 +283,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MembersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/playground': {
+      id: '/playground'
+      path: '/playground'
+      fullPath: '/playground'
+      preLoaderRoute: typeof PlaygroundRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reports': {
       id: '/reports'
       path: '/reports'
@@ -324,6 +344,7 @@ const rootRouteChildren: RootRouteChildren = {
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
   MembersRoute: MembersRoute,
+  PlaygroundRoute: PlaygroundRoute,
   ReportsRoute: ReportsRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   SubscriptionRoute: SubscriptionRoute,

@@ -30,11 +30,16 @@ export function checkedUrl(url) {
   return url;
 }
 
+/** Project root, resolved from this file's location (scripts/ is always one level down). */
+const projectRoot = resolve(import.meta.dirname, "..");
+
 /** Absolute `target` if it is strictly inside `allowedDirs`, else exit 1. */
 export function checkedOutputPath(target, allowedDirs, label = "screenshot") {
   // Resolve first so `..` cannot slip past the prefix check.
   const abs = resolve(target);
-  const allowed = allowedDirs.some((dir) => abs.startsWith(dir.endsWith(sep) ? dir : dir + sep));
+  const allowed = allowedDirs.some((dir) => abs.startsWith(dir.endsWith(sep) ? dir : dir + sep)) ||
+    abs === projectRoot ||
+    abs.startsWith(projectRoot + sep);
   if (!allowed) {
     fail(`${label} path must be under ${allowedDirs.join(" or ")}, got ${abs}`);
   }
